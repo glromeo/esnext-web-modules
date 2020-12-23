@@ -1,14 +1,14 @@
 import {rollup} from "rollup";
 import {entryProxyPlugin} from "./entry-proxy-plugin";
-import path from "path";
 import {nodeResolve} from "@rollup/plugin-node-resolve";
 import commonjs from "@rollup/plugin-commonjs";
+import * as fs from "fs";
 
 export type WebModuleBundlerOptions = { moduleDirectories: string[], outDir: string };
 
-export async function bundleWebModule(input: string, options: WebModuleBundlerOptions) {
+export async function bundleWebModule(module: string, options: WebModuleBundlerOptions) {
     const bundle = await rollup({
-        input: input,
+        input: module,
         plugins: [
             entryProxyPlugin(options),
             nodeResolve(options),
@@ -28,7 +28,11 @@ export async function bundleWebModule(input: string, options: WebModuleBundlerOp
         }
     }
     await bundle.write({
-        file: `${options.outDir}/${input}.js`
+        file: `${options.outDir}/${module}.js`
     });
+
+    fs.writeFileSync(`${options.outDir}/${module}.webpkg.json`, JSON.stringify({
+        "files": bundle.watchFiles.slice(1).map(f => f.substring(f.lastIndexOf("node_modules")+module.length+14))
+    }))
     await bundle.close();
 };
