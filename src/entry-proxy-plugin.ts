@@ -33,7 +33,7 @@ function scanEsm(filename:string, collectedExports:Map<string, string[]>, encoun
         encountered.add(f);
     }
     collectedExports.set(filename, filtered);
-    for (const {e, s} of imports) {
+    for (const {s, e} of imports) {
         let imported = path.resolve(path.dirname(filename), source.substring(s, e));
         if (!collectedExports.has(imported)) {
             scanEsm(imported, collectedExports, encountered);
