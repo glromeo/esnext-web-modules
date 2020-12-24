@@ -4,17 +4,20 @@ import * as path from "path";
 import {init as initCjs, parse as parseCjs} from "cjs-module-lexer";
 import {init as parseEsmReady, parse as parseEsm} from "es-module-lexer";
 import * as fs from "fs";
+import resolve from "resolve";
+import {bundleWebModule, importMap, WebModuleBundlerOptions} from "./esnext-bundler";
 
-export type EntryProxyPluginOptions = {};
+export type ModuleProxyPluginOptions = WebModuleBundlerOptions & {};
 
 const parseCjsReady = initCjs();
 
-function scanCjs(filename:string, collectedExports:Set<string>):void {
+function scanCjs(filename: string, collectedExports: Set<string>): void {
+    let source = fs.readFileSync(filename, "utf-8");
     let {
         exports,
         reexports
-    } = parseCjs(fs.readFileSync(filename, "utf-8"));
-    for (const e of exports) {
+    } = parseCjs(source);
+    for (const e of exports) if (e !== "__esModule") {
         collectedExports.add(e);
     }
     for (const re of reexports) {
@@ -22,7 +25,7 @@ function scanCjs(filename:string, collectedExports:Set<string>):void {
     }
 }
 
-function scanEsm(filename:string, collectedExports:Map<string, string[]>, encountered:Set<string>):void {
+function scanEsm(filename: string, collected: Map<string, string[]>, encountered: Set<string>): void {
     let source = fs.readFileSync(filename, "utf-8");
     let [
         imports,
@@ -32,18 +35,29 @@ function scanEsm(filename:string, collectedExports:Map<string, string[]>, encoun
     for (const f of filtered) {
         encountered.add(f);
     }
-    collectedExports.set(filename, filtered);
+    collected.set(filename, filtered);
     for (const {s, e} of imports) {
         let imported = path.resolve(path.dirname(filename), source.substring(s, e));
-        if (!collectedExports.has(imported)) {
-            scanEsm(imported, collectedExports, encountered);
+        if (!collected.has(imported)) {
+            scanEsm(imported, collected, encountered);
         }
     }
 }
 
-export function entryProxyPlugin(options: EntryProxyPluginOptions): Plugin {
+function rewriteImports(code: string, importMap: { imports: {} }) {
+    let [imports] = parseEsm(code);
+    let i = 0, rewritten: string = "";
+    for (const {s, e} of imports) {
+        rewritten += code.substring(i, s);
+        rewritten += importMap.imports[code.substring(s, e)]
+        i = e;
+    }
+    return rewritten + code.substring(i);
+}
+
+export function moduleProxy(options: ModuleProxyPluginOptions): Plugin {
     return {
-        name: "import-proxy",
+        name: "module-proxy",
         async resolveId(source, importer) {
             if (!importer) {
                 let resolution = await this.resolve(source, undefined, {skipSelf: true});
@@ -54,39 +68,48 @@ export function entryProxyPlugin(options: EntryProxyPluginOptions): Plugin {
                     if (resolution.id.endsWith(".cjs")) {
                         return `${resolution.id}?cjs-proxy`;
                     }
-                    let dirname = path.dirname(resolution.id);
-                    let pkg = require(dirname + "/package.json");
+                    let pkg = require(resolve.sync(`${source}/package.json`, {basedir: path.dirname(resolution.id)}));
                     if (pkg.module || pkg["jsnext:main"]) {
                         return `${resolution.id}?esm-proxy`;
                     } else {
                         return `${resolution.id}?cjs-proxy`;
                     }
-                } else {
-                    return null;
                 }
+                return null;
+            }
+            if (source.charCodeAt(0) !== 0 && !/^\.{0,2}\//.test(source)) {
+                try {
+                    await bundleWebModule(source, options);
+                } catch (e) {
+                    console.error(e);
+                }
+                return false;
             }
             return null;
         },
         async load(id) {
             if (id.endsWith("?cjs-proxy")) {
-                const importee = id.slice(0, -10).replace(/\\/g, "/");
+                const imported = id.slice(0, -10);
                 await parseCjsReady;
                 const exports = new Set<string>();
-                scanCjs(importee, exports);
-                return `export {\n${Array.from(exports).join(",\n")}\n} from "${importee}";`;
+                scanCjs(imported, exports);
+                return `export {\n${Array.from(exports).join(",\n")}\n} from "${imported.replace(/\\/g, "/")}";\n`;
             }
             if (id.endsWith("?esm-proxy")) {
-                const importee = id.slice(0, -10).replace(/\\/g, "/");
+                const imported = id.slice(0, -10);
                 await parseEsmReady;
                 const exports = new Map<string, string[]>();
-                scanEsm(importee, exports, new Set());
+                scanEsm(imported, exports, new Set());
                 let proxy = "";
                 for (const [filename, names] of Array.from(exports.entries())) {
-                    proxy  += `export {\n${Array.from(names).join(",\n")}\n} from "${filename}";\n`;
+                    proxy += `export {\n${Array.from(names).join(",\n")}\n} from "${filename.replace(/\\/g, "/")}";\n`;
                 }
                 return proxy;
             }
             return null;
+        },
+        renderChunk(code) {
+            return {code: rewriteImports(code, importMap), map: null};
         }
     };
 }
