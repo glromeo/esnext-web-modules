@@ -120,7 +120,7 @@ describe("web modules", function () {
 
     it("can bundle lit-html (with ts sourcemap)", async function () {
 
-        let {rollupWebModule} = useWebModules({
+        let {rollupWebModule, resolveImport} = useWebModules({
             baseDir: __dirname,
             rootDir: fixtureDir + "/lit-html",
             resolve: {moduleDirectory: [path.resolve(__dirname, "fixture/node_modules")]}
@@ -220,6 +220,9 @@ describe("web modules", function () {
                 line: 1212, column: 0, lastColumn: null
             });
         });
+
+        expect(await resolveImport("lit-html/lib/render.js")).to.equal("/web_modules/lit-html.js");
+        expect(await resolveImport("lit-html/directives/repeat.js")).to.equal("/web_modules/lit-html/directives/repeat.js");
     });
 
     // it("can bundle lit-html (with terser)", async function () {

@@ -16,6 +16,7 @@ import {ESNextToolsConfig, getModuleDirectories} from "./config";
 import * as path from "path";
 import {parse} from "fast-url-parser";
 import {bareNodeModule, isBare, parsePathname} from "./es-import-utils";
+import {rewriteImports} from "./rollup-plugin-rewrite-imports";
 
 interface PackageMeta {
     name: string;
@@ -39,16 +40,6 @@ export function useWebModules(config: WebModulesConfig) {
     const outDir = path.resolve(config.rootDir, "web_modules");
     const importMap = readImportMap(outDir);
 
-    const readManifest = (module: string, options: Opts) => new Promise<PackageMeta>((done, fail) => {
-        resolve(module, options, (err, resolved, pkg) => {
-            if (pkg) {
-                done(pkg);
-            } else {
-                fail(err);
-            }
-        });
-    });
-
     async function resolveImport(url: string, basedir?: string): Promise<string> {
         let {
             hostname,
@@ -61,9 +52,7 @@ export function useWebModules(config: WebModulesConfig) {
         }
 
         let resolved = importMap.imports[pathname];
-        if (resolved) {
-            pathname = resolved;
-        } else if (isBare(pathname)) {
+        if (!resolved && isBare(pathname)) {
             let [module, filename] = parsePathname(pathname);
             if (module !== null) {
                 resolved = importMap.imports[module];
@@ -72,31 +61,37 @@ export function useWebModules(config: WebModulesConfig) {
                     resolved = importMap.imports[module];
                 }
                 if (filename !== null) {
-                    resolved = resolved + "/" + filename;
+                    resolved = resolved.slice(0, -3) + "/" + filename;
                 }
-                pathname = resolved;
             }
         }
 
-        if (pathname.charAt(0) !== "/" && basedir) {
-            pathname = path.posix.join(basedir, pathname);
+        if (resolved.charAt(0) !== "/" && basedir) {
+            resolved = path.posix.join(basedir, resolved);
         }
 
         /* everything must be a javascript module: .css -> .css.js, .json -> .json.js */
 
-        const ext = path.extname(pathname).toLowerCase();
+        const ext = path.extname(resolved).toLowerCase();
         if (ext !== ".js" && ext !== ".mjs") {
-            pathname += ".js";
+            resolved += ".js";
+        }
+
+        try {
+            let {mtime} = fs.statSync(path.join(config.rootDir, resolved));
+        } catch (e) {
+            await rollupWebModule(resolved.substring(13));
         }
 
         if (search) {
-            return pathname + "?" + search;
+            return resolved + "?" + search;
         } else {
-            return pathname;
+            return resolved;
         }
     }
 
     const rollupPlugins = [
+        rewriteImports({imports: importMap.imports, resolver: resolveImport}),
         nodeResolve({
             rootDir: config.rootDir,
             moduleDirectories: getModuleDirectories(config)
@@ -108,51 +103,71 @@ export function useWebModules(config: WebModulesConfig) {
         config.terser && terser(config.terser)
     ].filter(Boolean) as [Plugin];
 
-    const cjsModuleProxy = moduleProxy("cjs-proxy", resolveImport);
-    const esmModuleProxy = moduleProxy("esm-proxy", resolveImport);
+    const cjsModuleProxy = moduleProxy("cjs-proxy");
+    const esmModuleProxy = moduleProxy("esm-proxy");
 
     const pending = new Map<string, Promise<void>>();
 
-    function rollupWebModule(module: string) {
-        if (importMap.imports[module]) {
-            return importMap.imports[module];
+    const readManifest = (module: string, options: Opts) => new Promise<PackageMeta>((done, fail) => {
+        resolve(module, options, (err, resolved, pkg) => {
+            if (pkg) {
+                done(pkg);
+            } else {
+                fail(err);
+            }
+        });
+    });
+
+    async function isEsModule(module: string) {
+        const pkg = await readManifest(module, config.resolve);
+        return pkg.module || pkg["jsnext:main"] || pkg.main?.endsWith(".mjs");
+    }
+
+    function rollupWebModule(pathname: string) {
+
+        if (importMap.imports[pathname]) {
+            return importMap.imports[pathname];
         }
 
-        if (!pending.has(module)) {
-            pending.set(module, task()
+        if (!pending.has(pathname)) {
+            let [module, filename] = parsePathname(pathname) as [string, string | null];
+            pending.set(pathname, task(module, filename)
                 .catch(function (err) {
                     return log.error(err);
                 })
                 .finally(function () {
-                    pending.delete(module);
+                    pending.delete(pathname);
                 })
             );
         }
-        return pending.get(module);
+        return pending.get(pathname);
 
-        async function task() {
-            const pkg = await readManifest(module, config.resolve);
+        async function task(module: string, filename: string | null) {
+            if (!importMap.imports[module] && filename) {
+                await rollupWebModule(module);
+            }
             const startTime = Date.now();
-            const isEsm = pkg.module || pkg["jsnext:main"] || pkg.main?.endsWith(".mjs");
             const bundle = await rollup({
-                input: module,
-                plugins: [
-                    isEsm ? esmModuleProxy : cjsModuleProxy,
+                input: pathname,
+                plugins: filename ? rollupPlugins : [
+                    await isEsModule(module) ? esmModuleProxy : cjsModuleProxy,
                     ...rollupPlugins
                 ]
             });
             try {
-                let {output: [firstChunk]} = await bundle.write({
-                    file: `${outDir}/${module}.js`,
+                await bundle.write({
+                    file: `${outDir}/${filename ? pathname : module + ".js"}`,
                     sourcemap: !config.terser
                 });
-                updateImportMap(module, bundle);
+                if (!filename) {
+                    updateImportMap(module, bundle);
+                }
                 writeImportMap(outDir, importMap);
             } finally {
                 await bundle.close();
                 const elapsed = Date.now() - startTime;
                 //@ts-ignore
-                log.info`rolled up: ${chalk.magenta(module)} in: ${chalk.magenta(elapsed)}ms`;
+                log.info`rolled up: ${chalk.magenta(pathname)} in: ${chalk.magenta(elapsed)}ms`;
             }
         }
     }

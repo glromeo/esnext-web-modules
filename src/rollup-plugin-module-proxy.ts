@@ -4,9 +4,6 @@ import * as path from "path";
 import {init as initCjs, parse as parseCjs} from "cjs-module-lexer";
 import {init as parseEsmReady, parse as parseEsm} from "es-module-lexer";
 import * as fs from "fs";
-import {ImportResolver} from "./web-modules";
-import {isBare} from "./es-import-utils";
-import log from "tiny-node-logger";
 
 const parseCjsReady = initCjs();
 
@@ -45,7 +42,7 @@ function scanEsm(filename: string, collected: Map<string, string[]>, encountered
 
 export type ModuleProxyType = "cjs-proxy" | "esm-proxy";
 
-export function moduleProxy(type: ModuleProxyType, resolveImport: ImportResolver): Plugin {
+export function moduleProxy(type: ModuleProxyType): Plugin {
     return {
         name: "module-proxy",
         async buildStart() {
@@ -57,12 +54,6 @@ export function moduleProxy(type: ModuleProxyType, resolveImport: ImportResolver
                 let resolution = await this.resolve(source, undefined, {skipSelf: true});
                 if (resolution) {
                     return `${resolution.id}?${type}`;
-                }
-            } else {
-                if (source.charCodeAt(0) !== 0 && isBare(source)) {
-                    let resolved = await resolveImport(source);
-                    log.info("bare module:", source, resolved);
-                    return false;
                 }
             }
             return null;
