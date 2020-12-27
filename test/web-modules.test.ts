@@ -80,7 +80,15 @@ describe("web modules", function () {
 
     it("can bundle react-dom", async function () {
 
+        let webModulesConfig = /* loadWebModulesConfig(); */ {
+            dummies: {
+                "react/cjs/react.production.min.js": `module.exports = {};`,
+                "react-dom/cjs/react-dom.production.min.js": `module.exports = {};`
+            }
+        };
+
         let {rollupWebModule} = useWebModules({
+            ...webModulesConfig,
             baseDir: __dirname,
             rootDir: fixtureDir + "/react",
             resolve: {moduleDirectory: [path.resolve(__dirname, "fixture/node_modules")]}

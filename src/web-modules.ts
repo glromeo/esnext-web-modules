@@ -1,4 +1,4 @@
-import {rollup, RollupBuild} from "rollup";
+import {rollup, RollupBuild, RollupOptions} from "rollup";
 import {nodeResolve} from "@rollup/plugin-node-resolve";
 import commonjs from "@rollup/plugin-commonjs";
 import json from "@rollup/plugin-json";
@@ -17,6 +17,7 @@ import * as path from "path";
 import {parse} from "fast-url-parser";
 import {bareNodeModule, isBare, parsePathname} from "./es-import-utils";
 import {rewriteImports} from "./rollup-plugin-rewrite-imports";
+import {dummyModule, DummyModuleOptions} from "./rollup-plugin-dummy-module";
 
 interface PackageMeta {
     name: string;
@@ -29,13 +30,17 @@ export interface ImportMap {
     imports: { [packageName: string]: string };
 }
 
-export type WebModulesConfig = ESNextToolsConfig & {
+export type WebModulesConfig = ESNextToolsConfig & RollupOptions & DummyModuleOptions & {
     terser?: TerserOptions
 };
 
+export function loadWebModulesConfig(): WebModulesConfig {
+    return require(resolve.sync("./web-modules.config.js", {basedir: process.cwd()}));
+}
+
 export type ImportResolver = (url: string, basedir?: string) => Promise<string>;
 
-export function useWebModules(config: WebModulesConfig) {
+export function useWebModules(config: WebModulesConfig = loadWebModulesConfig()) {
 
     const outDir = path.resolve(config.rootDir, "web_modules");
     const importMap = readImportMap(outDir);
@@ -91,6 +96,7 @@ export function useWebModules(config: WebModulesConfig) {
     }
 
     const rollupPlugins = [
+        dummyModule(config),
         rewriteImports({imports: importMap.imports, resolver: resolveImport}),
         nodeResolve({
             rootDir: config.rootDir,
@@ -100,7 +106,10 @@ export function useWebModules(config: WebModulesConfig) {
         json(),
         postcss(),
         sourcemaps(),
-        config.terser && terser(config.terser)
+        config.terser && terser(config.terser),
+        ...(
+            config.plugins || []
+        )
     ].filter(Boolean) as [Plugin];
 
     const cjsModuleProxy = moduleProxy("cjs-proxy");
@@ -152,7 +161,8 @@ export function useWebModules(config: WebModulesConfig) {
                 plugins: filename ? rollupPlugins : [
                     await isEsModule(module) ? esmModuleProxy : cjsModuleProxy,
                     ...rollupPlugins
-                ]
+                ],
+                external: config.external
             });
             try {
                 await bundle.write({
