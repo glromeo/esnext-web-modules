@@ -1,5 +1,5 @@
 {
-  "include": ["src"],
+  "include": ["src", "test"],
   "compilerOptions": {
     "outDir": "lib",
     "module": "commonjs",
@@ -10,6 +10,7 @@
     "strict": true,
     "sourceMap": true,
     "noImplicitAny": false,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "allowJs": true
   }
 }

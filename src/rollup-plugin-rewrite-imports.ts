@@ -4,8 +4,8 @@ import * as path from "path";
 import {init as initCjs, parse as parseCjs} from "cjs-module-lexer";
 import {init as parseEsmReady, parse as parseEsm} from "es-module-lexer";
 import * as fs from "fs";
-import {ImportResolver} from "./web-modules";
-import {isBare} from "./es-import-utils";
+import {ImportMap, ImportResolver} from "./web-modules";
+import {isBare, bareNodeModule} from "./es-import-utils";
 import log from "tiny-node-logger";
 
 const parseCjsReady = initCjs();
@@ -43,15 +43,28 @@ function scanEsm(filename: string, collected: Map<string, string[]>, encountered
     }
 }
 
+function rewriteImports(code: string, importMap: ImportMap) {
+    let [imports] = parseEsm(code);
+    let i = 0, rewritten: string = "";
+    for (const {s, e} of imports) {
+        let url = code.substring(s, e);
+        if (isBare(url)) {
+            rewritten += code.substring(i, s);
+            rewritten += importMap.imports[url]
+        } else {
+            rewritten += code.substring(i, e);
+        }
+        i = e;
+    }
+    return rewritten + code.substring(i);
+}
+
 export type ModuleProxyType = "cjs-proxy" | "esm-proxy";
+export type ModuleProxyOptions = {};
 
 export function moduleProxy(type: ModuleProxyType, resolveImport: ImportResolver): Plugin {
     return {
         name: "module-proxy",
-        async buildStart() {
-            await parseCjsReady;
-            await parseEsmReady;
-        },
         async resolveId(source, importer) {
             if (!importer) {
                 let resolution = await this.resolve(source, undefined, {skipSelf: true});
@@ -67,15 +80,17 @@ export function moduleProxy(type: ModuleProxyType, resolveImport: ImportResolver
             }
             return null;
         },
-        load(id) {
+        async load(id) {
             if (id.endsWith("?cjs-proxy")) {
                 const imported = id.slice(0, -10);
+                await parseCjsReady;
                 const exports = new Set<string>();
                 scanCjs(imported, exports);
                 return `export {\n${Array.from(exports).join(",\n")}\n} from "${imported.replace(/\\/g, "/")}";\n`;
             }
             if (id.endsWith("?esm-proxy")) {
                 const imported = id.slice(0, -10);
+                await parseEsmReady;
                 const exports = new Map<string, string[]>();
                 scanEsm(imported, exports, new Set());
                 let proxy = "";
@@ -85,6 +100,9 @@ export function moduleProxy(type: ModuleProxyType, resolveImport: ImportResolver
                 return proxy;
             }
             return null;
+        },
+        renderChunk(code) {
+            return {code: rewriteImports(code, {imports:{}}), map: null};
         }
     };
 }

@@ -10,13 +10,14 @@
     "@types/resolve": "^1.17.1",
     "cjs-module-lexer": "^1.0.0",
     "es-module-lexer": "^0.3.26",
+    "fast-url-parser": "^1.1.3",
     "node-sass": "^5.0.0",
     "postcss": "^8.2.1",
     "resolve": "^1.19.0",
     "rollup": "^2.35.1",
     "rollup-plugin-postcss": "^4.0.0",
     "rollup-plugin-sourcemaps": "^0.6.3",
-    "tiny-node-logger": "^3.0.0"
+    "tiny-node-logger": "^3.0.1"
   },
   "scripts": {
     "setup": "cd test/fixture && yarn install",
