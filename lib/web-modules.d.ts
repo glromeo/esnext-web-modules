@@ -13,7 +13,11 @@ export declare type WebModulesConfig = ESNextToolsConfig & RollupOptions & Dummy
 export declare function loadWebModulesConfig(): WebModulesConfig;
 export declare type ImportResolver = (url: string, basedir?: string) => Promise<string>;
 export declare function useWebModules(config?: WebModulesConfig): {
-    importMap: ImportMap;
+    importMap: {
+        imports: {
+            [x: string]: string;
+        };
+    };
     resolveImport: (url: string, basedir?: string | undefined) => Promise<string>;
     rollupWebModule: (pathname: string) => string | Promise<void> | undefined;
 };
