@@ -61,16 +61,18 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
         }
 
         let resolved = importMap.imports[pathname];
-        if (!resolved && isBare(pathname)) {
-            let [module, filename] = parsePathname(pathname);
-            if (module !== null) {
-                resolved = importMap.imports[module];
-                if (!resolved) {
-                    await rollupWebModule(module);
+        if (!resolved) {
+            if (isBare(pathname)) {
+                let [module, filename] = parsePathname(pathname);
+                if (module !== null) {
                     resolved = importMap.imports[module];
-                }
-                if (filename !== null) {
-                    resolved = resolved.slice(0, -3) + "/" + filename;
+                    if (!resolved) {
+                        await rollupWebModule(module);
+                        resolved = importMap.imports[module];
+                    }
+                    if (filename !== null) {
+                        resolved = resolved.slice(0, -3) + "/" + filename;
+                    }
                 }
             }
         }
@@ -84,12 +86,6 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
         const ext = path.extname(resolved).toLowerCase();
         if (ext !== ".js" && ext !== ".mjs") {
             resolved += ".js";
-        }
-
-        try {
-            let {mtime} = fs.statSync(path.join(config.rootDir, resolved));
-        } catch (e) {
-            await rollupWebModule(resolved.substring(13));
         }
 
         if (search) {
@@ -146,7 +142,8 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
             let [module, filename] = parsePathname(pathname) as [string, string | null];
             pending.set(pathname, task(module, filename)
                 .catch(function (err) {
-                    return log.error(err);
+                    log.error(err.message);
+                    throw err;
                 })
                 .finally(function () {
                     pending.delete(pathname);
@@ -188,7 +185,17 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
 
     function readImportMap(outDir: string): ImportMap {
         try {
-            return JSON.parse(fs.readFileSync(`${outDir}/import-map.json`, "utf-8"));
+            let importMap = JSON.parse(fs.readFileSync(`${outDir}/import-map.json`, "utf-8"));
+
+            for (const [key, pathname] of Object.entries(importMap.imports)) try {
+                let {mtime} = fs.statSync(path.join(config.rootDir, String(pathname)));
+                log.info("import:", key, pathname, mtime.toISOString());
+            } catch (e) {
+                log.warn("import:", key, "was stale");
+                delete importMap[key];
+            }
+
+            return importMap;
         } catch (e) {
             return {imports: {}};
         }
