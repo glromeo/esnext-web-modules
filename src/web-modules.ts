@@ -1,23 +1,22 @@
-import {rollup, RollupBuild, RollupOptions} from "rollup";
-import {nodeResolve} from "@rollup/plugin-node-resolve";
 import commonjs from "@rollup/plugin-commonjs";
 import json from "@rollup/plugin-json";
+import {nodeResolve} from "@rollup/plugin-node-resolve";
+import chalk from "chalk";
+import {parse} from "fast-url-parser";
+import fs from "fs";
+import path from "path";
+import resolve, {Opts} from "resolve";
+import {rollup, RollupBuild, RollupOptions} from "rollup";
 import postcss from "rollup-plugin-postcss";
 import sourcemaps from "rollup-plugin-sourcemaps";
-import {moduleProxy} from "./rollup-plugin-module-proxy";
 import {Options as TerserOptions, terser} from "rollup-plugin-terser";
-
-import * as fs from "fs";
-
 import log from "tiny-node-logger";
-import chalk from "chalk";
-import resolve, {Opts} from "resolve";
 import {ESNextToolsConfig, getModuleDirectories} from "./config";
-import * as path from "path";
-import {parse} from "fast-url-parser";
 import {bareNodeModule, isBare, parsePathname} from "./es-import-utils";
-import {rewriteImports} from "./rollup-plugin-rewrite-imports";
 import {dummyModule, DummyModuleOptions} from "./rollup-plugin-dummy-module";
+import {moduleProxy} from "./rollup-plugin-module-proxy";
+import {rewriteImports} from "./rollup-plugin-rewrite-imports";
+import {readWorkspaces} from "./workspaces";
 
 interface PackageMeta {
     name: string;
@@ -43,7 +42,12 @@ export type ImportResolver = (url: string, basedir?: string) => Promise<string>;
 export function useWebModules(config: WebModulesConfig = loadWebModulesConfig()) {
 
     const outDir = path.resolve(config.rootDir, "web_modules");
-    const importMap = readImportMap(outDir);
+    const importMap = {
+        imports: {
+            ...readImportMap(outDir).imports,
+            ...readWorkspaces(config.rootDir).imports
+        }
+    };
 
     async function resolveImport(url: string, basedir?: string): Promise<string> {
         let {

@@ -12,5 +12,8 @@
     "noImplicitAny": false,
     "skipLibCheck": true,
     "allowJs": true
+  },
+  "ts-node": {
+    "transpileOnly": true
   }
 }
