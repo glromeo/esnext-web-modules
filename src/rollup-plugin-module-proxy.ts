@@ -1,13 +1,14 @@
-import {Plugin} from "rollup";
-import * as path from "path";
-
 import {init as initCjs, parse as parseCjs} from "cjs-module-lexer";
 import {init as parseEsmReady, parse as parseEsm} from "es-module-lexer";
 import * as fs from "fs";
+import * as path from "path";
+import {Plugin} from "rollup";
+import {isBare} from "./es-import-utils";
 
 const parseCjsReady = initCjs();
 
 function scanCjs(filename: string, collectedExports: Set<string>): void {
+    let dirname = path.dirname(filename);
     let source = fs.readFileSync(filename, "utf-8");
     let {
         exports,
@@ -16,12 +17,15 @@ function scanCjs(filename: string, collectedExports: Set<string>): void {
     for (const e of exports) if (e !== "__esModule") {
         collectedExports.add(e);
     }
-    for (const re of reexports) {
-        scanCjs(path.resolve(path.dirname(filename), re), collectedExports);
+    for (const required of reexports) {
+        if (!isBare(required)) {
+            scanCjs(path.resolve(dirname, required), collectedExports);
+        }
     }
 }
 
 function scanEsm(filename: string, collected: Map<string, string[]>, encountered: Set<string>): void {
+    let dirname = path.dirname(filename);
     let source = fs.readFileSync(filename, "utf-8");
     let [
         imports,
@@ -33,9 +37,12 @@ function scanEsm(filename: string, collected: Map<string, string[]>, encountered
     }
     collected.set(filename, filtered);
     for (const {s, e} of imports) {
-        let imported = path.resolve(path.dirname(filename), source.substring(s, e));
-        if (!collected.has(imported)) {
-            scanEsm(imported, collected, encountered);
+        let imported = source.substring(s, e);
+        if (!isBare(imported) && path.extname(imported)) {
+            let resolved = path.resolve(dirname, imported);
+            if (!collected.has(resolved)) {
+                scanEsm(resolved, collected, encountered);
+            }
         }
     }
 }

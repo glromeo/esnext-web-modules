@@ -42,6 +42,14 @@ describe("ES Import Utils", function () {
             null,
             "./file.ext"
         ]);
+        expect(parsePathname("../file.ext")).to.eql([
+            null,
+            "../file.ext"
+        ]);
+        expect(parsePathname(".module/file.ext")).to.eql([
+            ".module",
+            "file.ext"
+        ]);
         expect(parsePathname("@/path/file.ext")).to.eql([
             "@/path",
             "file.ext"

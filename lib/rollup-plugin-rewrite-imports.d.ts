@@ -1,9 +1,8 @@
 import { Plugin } from "rollup";
-import { ImportResolver } from "./web-modules";
+import { ImportMap, ImportResolver } from "./web-modules";
 export declare type RewriteImportsOptions = {
-    imports: {
-        [key: string]: string;
-    };
+    importMap: ImportMap;
     resolver: ImportResolver;
+    squash: (test: string) => boolean;
 };
-export declare function rewriteImports({ imports: importMap, resolver: resolveImport }: RewriteImportsOptions): Plugin;
+export declare function rewriteImports({ importMap, resolver: resolveImport, squash }: RewriteImportsOptions): Plugin;

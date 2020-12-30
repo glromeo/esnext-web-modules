@@ -3,16 +3,17 @@ import json from "@rollup/plugin-json";
 import {nodeResolve} from "@rollup/plugin-node-resolve";
 import chalk from "chalk";
 import {parse} from "fast-url-parser";
-import fs from "fs";
-import path from "path";
-import resolve, {Opts} from "resolve";
-import {rollup, RollupBuild, RollupOptions} from "rollup";
-import postcss from "rollup-plugin-postcss";
+import * as fs from "fs";
+import {mkdirSync, readFileSync, rmdirSync, statSync} from "fs";
+import path, {posix} from "path";
+import picomatch from "picomatch";
+import resolve from "resolve";
+import {Plugin, rollup, RollupBuild, RollupOptions} from "rollup";
 import sourcemaps from "rollup-plugin-sourcemaps";
 import {Options as TerserOptions, terser} from "rollup-plugin-terser";
 import log from "tiny-node-logger";
-import {ESNextToolsConfig, getModuleDirectories} from "./config";
-import {bareNodeModule, isBare, parsePathname} from "./es-import-utils";
+import {ESNextToolsConfig} from "./config";
+import {bareNodeModule, parsePathname} from "./es-import-utils";
 import {dummyModule, DummyModuleOptions} from "./rollup-plugin-dummy-module";
 import {moduleProxy} from "./rollup-plugin-module-proxy";
 import {rewriteImports} from "./rollup-plugin-rewrite-imports";
@@ -30,24 +31,52 @@ export interface ImportMap {
 }
 
 export type WebModulesConfig = ESNextToolsConfig & RollupOptions & DummyModuleOptions & {
+    clean?: boolean
+    squash?: string | string[]
     terser?: TerserOptions
 };
 
 export function loadWebModulesConfig(): WebModulesConfig {
-    return require(resolve.sync("./web-modules.config.js", {basedir: process.cwd()}));
+    return require(require.resolve("./web-modules.config.js"));
 }
 
 export type ImportResolver = (url: string, basedir?: string) => Promise<string>;
 
 export function useWebModules(config: WebModulesConfig = loadWebModulesConfig()) {
 
-    const outDir = path.resolve(config.rootDir, "web_modules");
+    const outDir = path.join(config.rootDir, "web_modules");
+
+    if (config.clean) {
+        rmdirSync(outDir, {recursive: true});
+        log.info("cleaned web_modules directory");
+    }
+    mkdirSync(outDir, {recursive: true});
+
+    if (!config.resolve) {
+        config.resolve = {
+            paths: [path.join(config.rootDir, "node_modules")]
+        };
+    }
+
+    if (!config.squash) {
+        config.squash = ["@babel/runtime/**"];
+    }
+
+    const squash = config.squash ? picomatch(config.squash) : test => false;
+
     const importMap = {
         imports: {
             ...readImportMap(outDir).imports,
             ...readWorkspaces(config.rootDir).imports
+        },
+        __clear__() {
+            this.imports = {};
         }
     };
+
+    function resolveModuleType(ext: string, basedir: string | undefined) {
+        return "module";
+    }
 
     async function resolveImport(url: string, basedir?: string): Promise<string> {
         let {
@@ -62,30 +91,38 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
 
         let resolved = importMap.imports[pathname];
         if (!resolved) {
-            if (isBare(pathname)) {
-                let [module, filename] = parsePathname(pathname);
-                if (module !== null) {
-                    resolved = importMap.imports[module];
-                    if (!resolved) {
-                        await rollupWebModule(module);
-                        resolved = importMap.imports[module];
+            let [module, filename] = parsePathname(pathname);
+            if (module !== null && !importMap.imports[module]) {
+                await rollupWebModule(module);
+                resolved = importMap.imports[module];
+            }
+            if (filename) {
+                let ext = posix.extname(filename);
+                if (!ext) {
+                    ext = ".js";
+                    filename += ext;
+                }
+                if (ext !== ".js" && ext !== ".mjs") {
+                    let type = resolveModuleType(ext, basedir);
+                    search = search ? `type=${type}&${search}` : `type=${type}`;
+                    if (module) {
+                        resolved = `/node_modules/${module}/${filename}`;
+                    } else {
+                        resolved = filename;
                     }
-                    if (filename !== null) {
-                        resolved = resolved.slice(0, -3) + "/" + filename;
+                } else {
+                    if (module) {
+                        let bundled = importMap.imports[posix.join(module, filename)];
+                        if (bundled) {
+                            resolved = bundled;
+                        } else {
+                            resolved = `/web_modules/${module}/${filename}`;
+                        }
+                    } else {
+                        resolved = filename;
                     }
                 }
             }
-        }
-
-        if (resolved.charAt(0) !== "/" && basedir) {
-            resolved = path.posix.join(basedir, resolved);
-        }
-
-        /* everything must be a javascript module: .css -> .css.js, .json -> .json.js */
-
-        const ext = path.extname(resolved).toLowerCase();
-        if (ext !== ".js" && ext !== ".mjs") {
-            resolved += ".js";
         }
 
         if (search) {
@@ -97,14 +134,14 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
 
     const rollupPlugins = [
         dummyModule(config),
-        rewriteImports({imports: importMap.imports, resolver: resolveImport}),
+        rewriteImports({importMap, resolver: resolveImport, squash}),
         nodeResolve({
             rootDir: config.rootDir,
-            moduleDirectories: getModuleDirectories(config)
+            moduleDirectories: config.resolve.paths
         }),
         commonjs(),
         json(),
-        postcss(),
+        // postcss(),
         sourcemaps(),
         config.terser && terser(config.terser),
         ...(
@@ -115,21 +152,37 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
     const cjsModuleProxy = moduleProxy("cjs-proxy");
     const esmModuleProxy = moduleProxy("esm-proxy");
 
+    async function taskPlugins(module: string, filename: string | null) {
+        if (filename) {
+            if (squash(module)) {
+                return [esmModuleProxy, ...rollupPlugins];
+            }
+        } else {
+            if (await isEsModule(module)) {
+                return [esmModuleProxy, ...rollupPlugins];
+            } else {
+                return [cjsModuleProxy, ...rollupPlugins];
+            }
+        }
+        return rollupPlugins;
+    }
+
     const pending = new Map<string, Promise<void>>();
 
-    const readManifest = (module: string, options: Opts) => new Promise<PackageMeta>((done, fail) => {
-        resolve(module, options, (err, resolved, pkg) => {
-            if (pkg) {
-                done(pkg);
-            } else {
-                fail(err);
-            }
-        });
-    });
-
     async function isEsModule(module: string) {
-        const pkg = await readManifest(module, config.resolve);
-        return pkg.module || pkg["jsnext:main"] || pkg.main?.endsWith(".mjs");
+        return new Promise<any>(function (done, fail) {
+            resolve(
+                `${module}/package.json`,
+                {moduleDirectory: config.resolve.paths},
+                function (err, resolved, pkg) {
+                    if (pkg) {
+                        done(pkg.module || pkg["jsnext:main"] || pkg.main?.endsWith(".mjs"));
+                    } else {
+                        fail(err);
+                    }
+                }
+            );
+        });
     }
 
     function rollupWebModule(pathname: string) {
@@ -153,18 +206,20 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
         return pending.get(pathname);
 
         async function task(module: string, filename: string | null) {
-            if (!importMap.imports[module] && filename) {
+
+            log.info("rollup web module:", module, "filename:", filename);
+
+            if (filename && !importMap.imports[module] && !squash(module)) {
                 await rollupWebModule(module);
             }
+
             const startTime = Date.now();
             const bundle = await rollup({
                 input: pathname,
-                plugins: filename ? rollupPlugins : [
-                    await isEsModule(module) ? esmModuleProxy : cjsModuleProxy,
-                    ...rollupPlugins
-                ],
+                plugins: await taskPlugins(module, filename),
                 external: config.external
             });
+
             try {
                 await bundle.write({
                     file: `${outDir}/${filename ? pathname : module + ".js"}`,
@@ -173,7 +228,7 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
                 if (!filename) {
                     updateImportMap(module, bundle);
                 }
-                writeImportMap(outDir, importMap);
+                await writeImportMap(outDir, importMap);
             } finally {
                 await bundle.close();
                 const elapsed = Date.now() - startTime;
@@ -185,10 +240,10 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
 
     function readImportMap(outDir: string): ImportMap {
         try {
-            let importMap = JSON.parse(fs.readFileSync(`${outDir}/import-map.json`, "utf-8"));
+            let importMap = JSON.parse(readFileSync(`${outDir}/import-map.json`, "utf-8"));
 
             for (const [key, pathname] of Object.entries(importMap.imports)) try {
-                let {mtime} = fs.statSync(path.join(config.rootDir, String(pathname)));
+                let {mtime} = statSync(path.join(config.rootDir, String(pathname)));
                 log.info("import:", key, pathname, mtime.toISOString());
             } catch (e) {
                 log.warn("import:", key, "was stale");
@@ -201,8 +256,8 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
         }
     }
 
-    function writeImportMap(outDir: string, importMap: ImportMap): void {
-        fs.writeFileSync(`${outDir}/import-map.json`, JSON.stringify(importMap, null, "  "));
+    function writeImportMap(outDir: string, importMap: ImportMap): Promise<void> {
+        return fs.promises.writeFile(`${outDir}/import-map.json`, JSON.stringify(importMap, null, "  "));
     }
 
     /**

@@ -1,7 +1,7 @@
-import { Opts } from "resolve";
 export declare type ESNextToolsConfig = {
     baseDir: string;
     rootDir: string;
-    resolve: Opts;
+    resolve: {
+        paths?: string[];
+    };
 };
-export declare function getModuleDirectories(config: ESNextToolsConfig): string[] | undefined;

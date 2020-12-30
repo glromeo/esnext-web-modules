@@ -5,4 +5,4 @@ export declare type DummyModuleOptions = ESNextToolsConfig & {
         [module: string]: string;
     };
 };
-export declare function dummyModule({ dummies, resolve: options }: DummyModuleOptions): Plugin;
+export declare function dummyModule({ dummies, resolve: { paths } }: DummyModuleOptions): Plugin;

@@ -1,14 +1,13 @@
 import {Plugin} from "rollup";
-import resolve from "resolve";
 import {ESNextToolsConfig} from "./config";
 
 export type DummyModuleOptions = ESNextToolsConfig & {
     dummies?: { [module: string]: string }
 }
 
-export function dummyModule({dummies = {}, resolve: options}: DummyModuleOptions): Plugin {
+export function dummyModule({dummies = {}, resolve: {paths}}: DummyModuleOptions): Plugin {
     dummies = Object.keys(dummies).reduce(function (acc, module) {
-        acc[resolve.sync(module, options)] = dummies[module];
+        acc[require.resolve(module, {paths})] = dummies[module];
         return acc;
     }, {})
     return {

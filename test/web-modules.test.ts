@@ -1,4 +1,6 @@
-import {useWebModules} from "../src/web-modules";
+import exp from "constants";
+import {existsSync, readFileSync} from "fs";
+import {useWebModules} from "../src";
 import * as path from "path";
 import * as fs from "fs";
 import {expect} from "chai";
@@ -26,9 +28,12 @@ describe("web modules", function () {
     it("can bundle react", async function () {
 
         let {rollupWebModule} = useWebModules({
+            clean: true,
             baseDir: __dirname,
             rootDir: fixtureDir + "/react",
-            resolve: {moduleDirectory: [path.resolve(__dirname, "fixture/node_modules")]}
+            resolve: {
+                paths: [path.resolve(__dirname, "fixture/node_modules")]
+            }
         });
 
         const webModulesDir = path.resolve(__dirname, "fixture/react/web_modules");
@@ -88,10 +93,13 @@ describe("web modules", function () {
         };
 
         let {rollupWebModule} = useWebModules({
+            clean: true,
             ...webModulesConfig,
             baseDir: __dirname,
             rootDir: fixtureDir + "/react",
-            resolve: {moduleDirectory: [path.resolve(__dirname, "fixture/node_modules")]}
+            resolve: {
+                paths: [path.resolve(__dirname, "fixture/node_modules")]
+            }
         });
 
         const webModulesDir = path.resolve(__dirname, "fixture/react/web_modules");
@@ -129,9 +137,12 @@ describe("web modules", function () {
     it("can bundle lit-html (with ts sourcemap)", async function () {
 
         let {rollupWebModule, resolveImport} = useWebModules({
+            clean: true,
             baseDir: __dirname,
             rootDir: fixtureDir + "/lit-html",
-            resolve: {moduleDirectory: [path.resolve(__dirname, "fixture/node_modules")]}
+            resolve: {
+                paths: [path.resolve(__dirname, "fixture/node_modules")]
+            }
         });
 
         const webModulesDir = path.resolve(__dirname, "fixture/lit-html/web_modules");
@@ -230,6 +241,7 @@ describe("web modules", function () {
         });
 
         expect(await resolveImport("lit-html/lib/render.js")).to.equal("/web_modules/lit-html.js");
+        expect(await resolveImport("lit-html/lib/shady-render.js")).to.equal("/web_modules/lit-html/lib/shady-render.js");
         expect(await resolveImport("lit-html/directives/repeat.js")).to.equal("/web_modules/lit-html/directives/repeat.js");
     });
 
@@ -275,12 +287,60 @@ describe("web modules", function () {
     //     ]);
     // });
 
+    it("can bundle lit-element", async function () {
+
+        let {rollupWebModule} = useWebModules({
+            clean: true,
+            baseDir: __dirname,
+            rootDir: fixtureDir + "/lit-element",
+            resolve: {
+                paths: [path.resolve(__dirname, "fixture/node_modules")]
+            }
+        });
+
+        const webModulesDir = path.resolve(__dirname, "fixture/lit-element/web_modules");
+
+        await rollupWebModule("lit-element");
+
+        let exports = readExports(`${webModulesDir}/lit-element.js`);
+        expect(exports).to.have.members([
+            "CSSResult",
+            "LitElement",
+            "UpdatingElement",
+            "css",
+            "customElement",
+            "defaultConverter",
+            "eventOptions",
+            "internalProperty",
+            "notEqual",
+            "property",
+            "query",
+            "queryAll",
+            "queryAssignedNodes",
+            "queryAsync",
+            "supportsAdoptingStyleSheets",
+            "unsafeCSS"
+        ]);
+
+        let importMap = readImportMap(`${webModulesDir}/import-map.json`);
+        expect(importMap).to.include.members([
+            "lit-element/lit-element.js",
+            "lit-element"
+        ]);
+
+        let contents = fs.readFileSync(`${webModulesDir}/lit-element.js`, "utf-8");
+        expect(contents.substring(124, 155)).to.equal("from '/web_modules/lit-html.js'");
+    });
+
     it("can bundle bootstrap", async function () {
 
         let {rollupWebModule} = useWebModules({
+            clean: true,
             baseDir: __dirname,
             rootDir: fixtureDir + "/bootstrap",
-            resolve: {moduleDirectory: [path.resolve(__dirname, "fixture/node_modules")]}
+            resolve: {
+                paths: [path.resolve(__dirname, "fixture/node_modules")]
+            }
         });
 
         const webModulesDir = path.resolve(__dirname, "fixture/bootstrap/web_modules");
@@ -312,5 +372,85 @@ describe("web modules", function () {
             "bootstrap/dist/js/bootstrap.js",
             "bootstrap"
         ]);
+
+        try {
+            await rollupWebModule("bootstrap/dist/css/bootstrap.css");
+            fail("web modules don't include extraneous resources")
+        } catch (e) {
+            expect(e.message).to.equal("Unexpected token (Note that you need plugins to import files that are not JavaScript)");
+        }
     });
+
+
+    it("can bundle @babel/runtime/helpers/esm/decorate.js", async function () {
+
+        let {rollupWebModule} = useWebModules({
+            clean: true,
+            baseDir: __dirname,
+            rootDir: fixtureDir + "/babel-runtime",
+            resolve: {
+                paths: [path.resolve(__dirname, "fixture/node_modules")]
+            },
+            squash: ["@babel/runtime/**"]
+        });
+
+        const webModulesDir = path.resolve(__dirname, "fixture/babel-runtime/web_modules");
+
+        await rollupWebModule("@babel/runtime/helpers/esm/decorate.js");
+
+        let module = readFileSync(`${webModulesDir}/@babel/runtime/helpers/esm/decorate.js`, "utf-8");
+        expect(module).to.have.string(`function _arrayWithHoles(arr) {\n  if (Array.isArray(arr)) return arr;\n}`);
+
+        let importMap = readImportMap(`${webModulesDir}/import-map.json`);
+        expect(importMap).not.to.include.members([
+            "@babel/runtime"
+        ]);
+
+        expect(existsSync(`${webModulesDir}/@babel/runtime.js`)).to.be.false;
+    });
+
+    xit("can bundle lodash", async function () {
+
+        let {rollupWebModule} = useWebModules({
+            clean: true,
+            baseDir: __dirname,
+            rootDir: fixtureDir + "/babel-runtime",
+            resolve: {
+                paths: [path.resolve(__dirname, "fixture/node_modules")]
+            }
+        });
+
+        const webModulesDir = path.resolve(__dirname, "fixture/babel-runtime/web_modules");
+
+        await rollupWebModule("@babel/runtime/helpers/esm/decorate.js");
+
+        let exports = readExports(`${webModulesDir}/@babel/runtime/helpers/esm/decorate.js`);
+        expect(exports).to.have.members([
+            "CSSResult",
+            "LitElement",
+            "UpdatingElement",
+            "css",
+            "customElement",
+            "defaultConverter",
+            "eventOptions",
+            "internalProperty",
+            "notEqual",
+            "property",
+            "query",
+            "queryAll",
+            "queryAssignedNodes",
+            "queryAsync",
+            "supportsAdoptingStyleSheets",
+            "unsafeCSS"
+        ]);
+
+        let importMap = readImportMap(`${webModulesDir}/import-map.json`);
+        expect(importMap).to.include.members([
+            "@babel/runtime"
+        ]);
+
+        let contents = fs.readFileSync(`${webModulesDir}/@babel/runtime.js`, "utf-8");
+        expect(contents.substring(124, 155)).to.equal("from '/web_modules/lit-html.js'");
+    });
+
 });

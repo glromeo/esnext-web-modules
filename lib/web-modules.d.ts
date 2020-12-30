@@ -8,6 +8,8 @@ export interface ImportMap {
     };
 }
 export declare type WebModulesConfig = ESNextToolsConfig & RollupOptions & DummyModuleOptions & {
+    clean?: boolean;
+    squash?: string | string[];
     terser?: TerserOptions;
 };
 export declare function loadWebModulesConfig(): WebModulesConfig;
@@ -17,6 +19,7 @@ export declare function useWebModules(config?: WebModulesConfig): {
         imports: {
             [x: string]: string;
         };
+        __clear__(): void;
     };
     resolveImport: (url: string, basedir?: string | undefined) => Promise<string>;
     rollupWebModule: (pathname: string) => string | Promise<void> | undefined;

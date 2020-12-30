@@ -1,28 +1,33 @@
+import picomatch from "picomatch";
 import {OutputOptions, Plugin, RenderedChunk} from "rollup";
 import {parse as parseEsm} from "es-module-lexer";
-import {ImportResolver} from "./web-modules";
+import {ImportMap, ImportResolver} from "./web-modules";
 import {bareNodeModule, isBare} from "./es-import-utils";
 import * as path from "path";
 
 export type RewriteImportsOptions = {
-    imports: { [key: string]: string },
+    importMap: ImportMap
     resolver: ImportResolver
+    squash: (test: string) => boolean
 }
 
 const RESOLVED_IMPORT = "rewrite-imports:resolved_import";
 
-export function rewriteImports({imports: importMap, resolver: resolveImport}: RewriteImportsOptions): Plugin {
+export function rewriteImports({importMap, resolver: resolveImport, squash}: RewriteImportsOptions): Plugin {
     return {
         name: "rewrite-imports",
         async resolveId(source, importer) {
             if (importer && source.charCodeAt(0) !== 0) {
                 if (isBare(source)) {
+                    if (squash(source)) {
+                        return null;
+                    }
                     let resolved = await resolveImport(source);
                     return {id:source, external: true, meta: {[RESOLVED_IMPORT]: resolved}};
                 } else {
                     let absolute = path.resolve(path.dirname(importer), source);
                     let moduleBareUrl = bareNodeModule(absolute);
-                    let resolved = importMap[moduleBareUrl];
+                    let resolved = importMap.imports[moduleBareUrl];
                     if (resolved) {
                         return {id:source, external: true, meta: {[RESOLVED_IMPORT]: resolved}};
                     }
