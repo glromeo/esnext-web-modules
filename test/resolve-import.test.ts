@@ -161,7 +161,11 @@ describe("resolve import", function () {
         expect(await resolveImport("../styles.scss")).to.equal("../styles.scss?type=module");
     });
 
-    it("smooth-scrollbar", async function () {
+    it("smooth-scrollbar has to be squashed!", async function () {
         expect(await resolveImport("smooth-scrollbar")).to.equal("/web_modules/smooth-scrollbar.js");
+    });
+
+    it("fast-diff", async function () {
+        expect(await resolveImport("fast-diff")).to.equal("/web_modules/fast-diff.js");
     });
 });

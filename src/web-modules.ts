@@ -141,7 +141,6 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
         }),
         commonjs(),
         json(),
-        // postcss(),
         sourcemaps(),
         config.terser && terser(config.terser),
         ...(
@@ -158,6 +157,9 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
                 return [esmModuleProxy, ...rollupPlugins];
             }
         } else {
+            if (squash(module)) {
+                return rollupPlugins.slice(2);
+            }
             if (await isEsModule(module)) {
                 return [esmModuleProxy, ...rollupPlugins];
             } else {
@@ -193,7 +195,7 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
 
         if (!pending.has(pathname)) {
             let [module, filename] = parsePathname(pathname) as [string, string | null];
-            pending.set(pathname, task(module, filename)
+            pending.set(pathname, rollupWebModuleTask(module, filename)
                 .catch(function (err) {
                     log.error(err.message);
                     throw err;
@@ -205,7 +207,7 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
         }
         return pending.get(pathname);
 
-        async function task(module: string, filename: string | null) {
+        async function rollupWebModuleTask(module: string, filename: string | null) {
 
             log.info("rollup web module:", module, "filename:", filename);
 
@@ -261,8 +263,10 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
     }
 
     /**
-     * Ideally ImportMap should be a trie in memory
      * bundle.watchFiles[0] is the synthetic proxy
+     *
+     * TODO: To implement squash properly I need to use the imported/required files list
+     * that can be collected by the proxy plugin instead of the
      *
      * @param module
      * @param bundle

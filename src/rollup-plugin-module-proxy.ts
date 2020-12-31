@@ -3,7 +3,7 @@ import {init as parseEsmReady, parse as parseEsm} from "es-module-lexer";
 import * as fs from "fs";
 import * as path from "path";
 import {Plugin} from "rollup";
-import {isBare} from "./es-import-utils";
+import {isBare, toPosix} from "./es-import-utils";
 
 const parseCjsReady = initCjs();
 
@@ -70,15 +70,17 @@ export function moduleProxy(type: ModuleProxyType): Plugin {
                 const imported = id.slice(0, -10);
                 const exports = new Set<string>();
                 scanCjs(imported, exports);
-                return `export {\n${Array.from(exports).join(",\n")}\n} from "${imported.replace(/\\/g, "/")}";\n`;
+                return exports.size === 0
+                    ? `import __d__ from "${toPosix(imported)}";\nexport default __d__;\n`
+                    : `export {\n${Array.from(exports).join(",\n")}\n} from "${toPosix(imported)}";\n`;
             }
             if (id.endsWith("?esm-proxy")) {
                 const imported = id.slice(0, -10);
                 const exports = new Map<string, string[]>();
                 scanEsm(imported, exports, new Set());
                 let proxy = "";
-                for (const [filename, names] of Array.from(exports.entries())) {
-                    proxy += `export {\n${Array.from(names).join(",\n")}\n} from "${filename.replace(/\\/g, "/")}";\n`;
+                for (const [imported, names] of Array.from(exports.entries())) {
+                    proxy += `export {\n${Array.from(names).join(",\n")}\n} from "${toPosix(imported)}";\n`;
                 }
                 return proxy;
             }
