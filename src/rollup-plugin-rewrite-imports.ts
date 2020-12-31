@@ -1,6 +1,7 @@
 import picomatch from "picomatch";
 import {OutputOptions, Plugin, RenderedChunk} from "rollup";
 import {parse as parseEsm} from "es-module-lexer";
+import log from "tiny-node-logger";
 import {ImportMap, ImportResolver} from "./web-modules";
 import {bareNodeModule, isBare} from "./es-import-utils";
 import * as path from "path";

@@ -70,9 +70,11 @@ export function moduleProxy(type: ModuleProxyType): Plugin {
                 const imported = id.slice(0, -10);
                 const exports = new Set<string>();
                 scanCjs(imported, exports);
-                return exports.size === 0
-                    ? `import __d__ from "${toPosix(imported)}";\nexport default __d__;\n`
-                    : `export {\n${Array.from(exports).join(",\n")}\n} from "${toPosix(imported)}";\n`;
+                let proxy = `import __d__ from "${toPosix(imported)}";\nexport default __d__;\n`;
+                if (exports.size > 0) {
+                    proxy += `export {\n${Array.from(exports).join(",\n")}\n} from "${toPosix(imported)}";\n`;
+                }
+                return proxy;
             }
             if (id.endsWith("?esm-proxy")) {
                 const imported = id.slice(0, -10);

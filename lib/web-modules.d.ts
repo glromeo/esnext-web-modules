@@ -22,5 +22,5 @@ export declare function useWebModules(config?: WebModulesConfig): {
         __clear__(): void;
     };
     resolveImport: (url: string, basedir?: string | undefined) => Promise<string>;
-    rollupWebModule: (pathname: string) => string | Promise<void> | undefined;
+    rollupWebModule: (pathname: string) => Promise<void>;
 };

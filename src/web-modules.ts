@@ -74,6 +74,48 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
         }
     };
 
+    function readImportMap(outDir: string): ImportMap {
+        try {
+            let importMap = JSON.parse(readFileSync(`${outDir}/import-map.json`, "utf-8"));
+
+            for (const [key, pathname] of Object.entries(importMap.imports)) try {
+                let {mtime} = statSync(path.join(config.rootDir, String(pathname)));
+                log.info("import:", key, pathname, mtime.toISOString());
+            } catch (e) {
+                log.warn("import:", key, "was stale");
+                delete importMap[key];
+            }
+
+            return importMap;
+        } catch (e) {
+            return {imports: {}};
+        }
+    }
+
+    function writeImportMap(outDir: string, importMap: ImportMap): Promise<void> {
+        return fs.promises.writeFile(`${outDir}/import-map.json`, JSON.stringify(importMap, null, "  "));
+    }
+
+    /**
+     * bundle.watchFiles[0] is the synthetic proxy
+     *
+     * TODO: To implement squash properly I need to use the imported/required files list
+     * that can be collected by the proxy plugin instead of the
+     *
+     * @param module
+     * @param bundle
+     */
+    function updateImportMap(module: string, bundle: RollupBuild) {
+        let outputUrl = `/web_modules/${module}.js`;
+        for (const file of bundle.watchFiles.slice(1)) {
+            if (file.charCodeAt(0) !== 0 && !file.endsWith("?commonjs-proxy")) {
+                let bare = bareNodeModule(file);
+                importMap.imports[bare] = outputUrl;
+            }
+        }
+        importMap.imports[module] = outputUrl;
+    }
+
     function resolveModuleType(ext: string, basedir: string | undefined) {
         return "module";
     }
@@ -171,45 +213,40 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
 
     const pending = new Map<string, Promise<void>>();
 
+    const resolveOptions = {basedir: config.rootDir, moduleDirectory: config.resolve.paths};
+
     async function isEsModule(module: string) {
         return new Promise<any>(function (done, fail) {
-            resolve(
-                `${module}/package.json`,
-                {moduleDirectory: config.resolve.paths},
-                function (err, resolved, pkg) {
-                    if (pkg) {
-                        done(pkg.module || pkg["jsnext:main"] || pkg.main?.endsWith(".mjs"));
-                    } else {
-                        fail(err);
-                    }
+            resolve(`${module}/package.json`, resolveOptions, (err, resolved, pkg) => {
+                if (pkg) {
+                    done(pkg.module || pkg["jsnext:main"] || pkg.main?.endsWith(".mjs"));
+                } else {
+                    fail(err);
                 }
-            );
+            });
         });
     }
 
-    function rollupWebModule(pathname: string) {
+    async function rollupWebModule(pathname: string):Promise<void> {
 
         if (importMap.imports[pathname]) {
-            return importMap.imports[pathname];
+            return;
         }
 
         if (!pending.has(pathname)) {
             let [module, filename] = parsePathname(pathname) as [string, string | null];
             pending.set(pathname, rollupWebModuleTask(module, filename)
-                .catch(function (err) {
-                    log.error(err.message);
-                    throw err;
-                })
                 .finally(function () {
                     pending.delete(pathname);
                 })
             );
         }
-        return pending.get(pathname);
 
-        async function rollupWebModuleTask(module: string, filename: string | null) {
+        await pending.get(pathname);
 
-            log.info("rollup web module:", module, "filename:", filename);
+        async function rollupWebModuleTask(module: string, filename: string | null):Promise<void> {
+
+            log.info("rollup web module:", pathname);
 
             if (filename && !importMap.imports[module] && !squash(module)) {
                 await rollupWebModule(module);
@@ -234,52 +271,9 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
             } finally {
                 await bundle.close();
                 const elapsed = Date.now() - startTime;
-                //@ts-ignore
                 log.info`rolled up: ${chalk.magenta(pathname)} in: ${chalk.magenta(elapsed)}ms`;
             }
         }
-    }
-
-    function readImportMap(outDir: string): ImportMap {
-        try {
-            let importMap = JSON.parse(readFileSync(`${outDir}/import-map.json`, "utf-8"));
-
-            for (const [key, pathname] of Object.entries(importMap.imports)) try {
-                let {mtime} = statSync(path.join(config.rootDir, String(pathname)));
-                log.info("import:", key, pathname, mtime.toISOString());
-            } catch (e) {
-                log.warn("import:", key, "was stale");
-                delete importMap[key];
-            }
-
-            return importMap;
-        } catch (e) {
-            return {imports: {}};
-        }
-    }
-
-    function writeImportMap(outDir: string, importMap: ImportMap): Promise<void> {
-        return fs.promises.writeFile(`${outDir}/import-map.json`, JSON.stringify(importMap, null, "  "));
-    }
-
-    /**
-     * bundle.watchFiles[0] is the synthetic proxy
-     *
-     * TODO: To implement squash properly I need to use the imported/required files list
-     * that can be collected by the proxy plugin instead of the
-     *
-     * @param module
-     * @param bundle
-     */
-    function updateImportMap(module: string, bundle: RollupBuild) {
-        let outputUrl = `/web_modules/${module}.js`;
-        for (const file of bundle.watchFiles.slice(1)) {
-            if (file.charCodeAt(0) !== 0 && !file.endsWith("?commonjs-proxy")) {
-                let bare = bareNodeModule(file);
-                importMap.imports[bare] = outputUrl;
-            }
-        }
-        importMap.imports[module] = outputUrl;
     }
 
     return {

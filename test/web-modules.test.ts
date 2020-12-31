@@ -105,6 +105,7 @@ describe("web modules", function () {
         const webModulesDir = path.resolve(__dirname, "fixture/react/web_modules");
 
         await rollupWebModule("react-dom");
+        await rollupWebModule("react-dom");
 
         let exports = readExports(`${webModulesDir}/react-dom.js`);
         expect(exports).to.have.members([
@@ -132,6 +133,10 @@ describe("web modules", function () {
             "react-dom/cjs/react-dom.development.js",
             "react-dom"
         ]);
+
+        let out = readFileSync(`${webModulesDir}/react-dom.js`, "utf-8");
+        expect(out).to.have.string("export default reactDom;"); // default export workaround
+        expect(out).to.have.string("var reactDom_production_min = {};"); // rollup-plugin-dummy-module
     });
 
     it("can bundle lit-html (with ts sourcemap)", async function () {
