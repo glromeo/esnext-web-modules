@@ -1,10 +1,9 @@
-import exp from "constants";
-import {existsSync, readFileSync} from "fs";
-import {useWebModules} from "../src";
-import * as path from "path";
-import * as fs from "fs";
 import {expect} from "chai";
-import sourceMap from "source-map";
+import * as fs from "fs";
+import {existsSync, readFileSync} from "fs";
+import * as path from "path";
+import {SourceMapConsumer} from "source-map";
+import {useWebModules} from "../src";
 
 function readExports(path: string) {
     let out = fs.readFileSync(path, "utf-8");
@@ -210,7 +209,7 @@ describe("web modules", function () {
         ]);
 
         let rawSourceMap = readSourceMap(`${webModulesDir}/lit-html.js`);
-        await sourceMap.SourceMapConsumer.with(rawSourceMap, null, consumer => {
+        await SourceMapConsumer.with(rawSourceMap, null, consumer => {
             expect(consumer.sources).to.have.members([
                 "../../node_modules/lit-html/src/lib/directive.ts",
                 "../../node_modules/lit-html/src/lib/dom.ts",

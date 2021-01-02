@@ -146,7 +146,7 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
                 }
                 if (ext !== ".js" && ext !== ".mjs") {
                     let type = resolveModuleType(ext, basedir);
-                    search = search ? `type=${type}&${search}` : `type=${type}`;
+                    search = search ? `type=${type}&${search.substring(1)}` : `type=${type}`;
                     if (module) {
                         resolved = `/node_modules/${module}/${filename}`;
                     } else {
@@ -193,16 +193,16 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
     const cjsModuleProxy = moduleProxy("cjs-proxy");
     const esmModuleProxy = moduleProxy("esm-proxy");
 
-    async function taskPlugins(module: string, filename: string | null) {
+    function taskPlugins(pkg: PackageMeta, filename: string | null) {
         if (filename) {
-            if (squash(module)) {
+            if (squash(pkg.name)) {
                 return [esmModuleProxy, ...rollupPlugins];
             }
         } else {
-            if (squash(module)) {
+            if (squash(pkg.name)) {
                 return rollupPlugins.slice(2);
             }
-            if (await isEsModule(module)) {
+            if (pkg.module || pkg["jsnext:main"] || pkg.main?.endsWith(".mjs")) {
                 return [esmModuleProxy, ...rollupPlugins];
             } else {
                 return [cjsModuleProxy, ...rollupPlugins];
@@ -215,11 +215,11 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
 
     const resolveOptions = {basedir: config.rootDir, moduleDirectory: config.resolve.paths};
 
-    async function isEsModule(module: string) {
-        return new Promise<any>(function (done, fail) {
-            resolve(`${module}/package.json`, resolveOptions, (err, resolved, pkg) => {
+    function requireManifest(module: string) {
+        return new Promise<PackageMeta>(function (done, fail) {
+            resolve(`${module}/package.json`, resolveOptions, function (err, resolved, pkg) {
                 if (pkg) {
-                    done(pkg.module || pkg["jsnext:main"] || pkg.main?.endsWith(".mjs"));
+                    done(pkg);
                 } else {
                     fail(err);
                 }
@@ -252,10 +252,12 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
                 await rollupWebModule(module);
             }
 
+            const pkg = await requireManifest(module);
+
             const startTime = Date.now();
             const bundle = await rollup({
                 input: pathname,
-                plugins: await taskPlugins(module, filename),
+                plugins: taskPlugins(pkg, filename),
                 external: config.external
             });
 

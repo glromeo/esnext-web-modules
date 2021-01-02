@@ -57,7 +57,7 @@ describe("ES Import Utils", function () {
     });
 
     it("toPosix", function () {
-        expect(toPosix("C:\\A\\B\\C.txt")).to.equal("C:/A/B/C.txt");
+        expect(toPosix("C:\\Folder\\file.txt")).to.equal("C:/Folder/file.txt");
     });
 
 });
