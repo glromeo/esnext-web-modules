@@ -4,7 +4,7 @@ import {nodeResolve} from "@rollup/plugin-node-resolve";
 import chalk from "chalk";
 import {parse} from "fast-url-parser";
 import * as fs from "fs";
-import {mkdirSync, readFileSync, rmdirSync, statSync} from "fs";
+import {existsSync, mkdirSync, readFileSync, rmdirSync, statSync} from "fs";
 import path, {posix} from "path";
 import picomatch from "picomatch";
 import resolve from "resolve";
@@ -37,16 +37,25 @@ export type WebModulesConfig = ESNextToolsConfig & RollupOptions & DummyModuleOp
 };
 
 export function loadWebModulesConfig(): WebModulesConfig {
-    return require(require.resolve("./web-modules.config.js"));
+    return require(require.resolve(`${process.cwd()}/web-modules.config.js`));
 }
 
 export type ImportResolver = (url: string, basedir?: string) => Promise<string>;
 
+/**
+ *   __        __   _       __  __           _       _
+ *   \ \      / /__| |__   |  \/  | ___   __| |_   _| | ___  ___
+ *    \ \ /\ / / _ \ '_ \  | |\/| |/ _ \ / _` | | | | |/ _ \/ __|
+ *     \ V  V /  __/ |_) | | |  | | (_) | (_| | |_| | |  __/\__ \
+ *      \_/\_/ \___|_.__/  |_|  |_|\___/ \__,_|\__,_|_|\___||___/
+ *
+ * @param config
+ */
 export function useWebModules(config: WebModulesConfig = loadWebModulesConfig()) {
 
     const outDir = path.join(config.rootDir, "web_modules");
 
-    if (config.clean) {
+    if (config.clean && existsSync(outDir)) {
         rmdirSync(outDir, {recursive: true});
         log.info("cleaned web_modules directory");
     }
@@ -68,9 +77,6 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
         imports: {
             ...readImportMap(outDir).imports,
             ...readWorkspaces(config.rootDir).imports
-        },
-        __clear__() {
-            this.imports = {};
         }
     };
 
@@ -120,6 +126,19 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
         return "module";
     }
 
+    /**
+     *                       _          _____                           _
+     *                      | |        |_   _|                         | |
+     *   _ __ ___  ___  ___ | |_   _____ | | _ __ ___  _ __   ___  _ __| |_
+     *  | '__/ _ \/ __|/ _ \| \ \ / / _ \| || '_ ` _ \| '_ \ / _ \| '__| __|
+     *  | | |  __/\__ \ (_) | |\ V /  __/| || | | | | | |_) | (_) | |  | |_
+     *  |_|  \___||___/\___/|_| \_/ \___\___/_| |_| |_| .__/ \___/|_|   \__|
+     *                                                | |
+     *                                                |_|
+     *
+     * @param url
+     * @param basedir
+     */
     async function resolveImport(url: string, basedir?: string): Promise<string> {
         let {
             hostname,
@@ -227,10 +246,24 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
         });
     }
 
-    async function rollupWebModule(pathname: string):Promise<void> {
+    const ALREADY_RESOLVED = Promise.resolve();
+
+    /**
+     *              _ _         __          __  _     __  __           _       _
+     *             | | |        \ \        / / | |   |  \/  |         | |     | |
+     *    _ __ ___ | | |_   _ _ _\ \  /\  / /__| |__ | \  / | ___   __| |_   _| | ___
+     *   | '__/ _ \| | | | | | '_ \ \/  \/ / _ \ '_ \| |\/| |/ _ \ / _` | | | | |/ _ \
+     *   | | | (_) | | | |_| | |_) \  /\  /  __/ |_) | |  | | (_) | (_| | |_| | |  __/
+     *   |_|  \___/|_|_|\__,_| .__/ \/  \/ \___|_.__/|_|  |_|\___/ \__,_|\__,_|_|\___|
+     *                       | |
+     *                       |_|
+     *
+     * @param pathname
+     */
+    function rollupWebModule(pathname: string):Promise<void> {
 
         if (importMap.imports[pathname]) {
-            return;
+            return ALREADY_RESOLVED;
         }
 
         if (!pending.has(pathname)) {
@@ -242,7 +275,7 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
             );
         }
 
-        await pending.get(pathname);
+        return pending.get(pathname)!;
 
         async function rollupWebModuleTask(module: string, filename: string | null):Promise<void> {
 
@@ -279,6 +312,7 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
     }
 
     return {
+        outDir,
         importMap,
         resolveImport,
         rollupWebModule

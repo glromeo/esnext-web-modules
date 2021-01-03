@@ -37,21 +37,9 @@ describe("resolve import", function () {
             .to.equal("file:///echo.do?query=message");
     });
 
-    it("modules are resolved from local workspaces", async function () {
+    it("relative imports", async function () {
 
         let {rootDir, resolveImport} = setup("fixture/workspaces");
-
-        expect(await resolveImport("module-a")).to.equal(
-            "/workspaces/module-a/index.js"
-        );
-        expect(await resolveImport("module-b")).to.equal(
-            "/workspaces/group/module-b/index.js"
-        );
-        expect(await resolveImport("@workspaces/module-c")).to.equal(
-            "/workspaces/group/module-c/index.js"
-        );
-
-        expect(await resolveImport("module-e").catch(e => e.message)).to.match(/Cannot find module 'module-e\/package.json'/);
 
         expect(await resolveImport("./epsilon")).to.equal("./epsilon.js");
 

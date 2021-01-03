@@ -4,13 +4,15 @@ import log from "tiny-node-logger";
 import {toPosix} from "./es-import-utils";
 import {ImportMap} from "./web-modules";
 
-function readManifest(basedir: string, entries: [string, string][] = []) {
+function readManifest(basedir: string, entries: [string, string][]) {
     try {
         let pkg = require(path.join(basedir, "package.json"));
 
         let main = pkg.module || pkg["jsnext:main"] || pkg.main;
         if (main) {
             entries.push([pkg.name, path.join(basedir, main)]);
+        } else {
+            entries.push([pkg.name, basedir]);
         }
 
         if (pkg.workspaces) {

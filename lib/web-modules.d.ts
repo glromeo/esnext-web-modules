@@ -14,12 +14,21 @@ export declare type WebModulesConfig = ESNextToolsConfig & RollupOptions & Dummy
 };
 export declare function loadWebModulesConfig(): WebModulesConfig;
 export declare type ImportResolver = (url: string, basedir?: string) => Promise<string>;
+/**
+ *   __        __   _       __  __           _       _
+ *   \ \      / /__| |__   |  \/  | ___   __| |_   _| | ___  ___
+ *    \ \ /\ / / _ \ '_ \  | |\/| |/ _ \ / _` | | | | |/ _ \/ __|
+ *     \ V  V /  __/ |_) | | |  | | (_) | (_| | |_| | |  __/\__ \
+ *      \_/\_/ \___|_.__/  |_|  |_|\___/ \__,_|\__,_|_|\___||___/
+ *
+ * @param config
+ */
 export declare function useWebModules(config?: WebModulesConfig): {
+    outDir: string;
     importMap: {
         imports: {
             [x: string]: string;
         };
-        __clear__(): void;
     };
     resolveImport: (url: string, basedir?: string | undefined) => Promise<string>;
     rollupWebModule: (pathname: string) => Promise<void>;

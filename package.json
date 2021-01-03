@@ -25,7 +25,7 @@
     "build": "tsc",
     "build:watch": "tsc --watch",
     "serve:fixture": "http-server test/fixture",
-    "test": "nyc mocha"
+    "test": "nyc mocha test/**/*.test.ts"
   },
   "nyc": {
     "extension": [
@@ -44,9 +44,7 @@
   "mocha": {
     "require": [
       "ts-node/register"
-    ],
-    "spec": "test/**/*.test.ts",
-    "recursive": true
+    ]
   },
   "devDependencies": {
     "@types/babel__core": "^7.1.12",
