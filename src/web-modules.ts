@@ -1,6 +1,6 @@
-import commonjs from "@rollup/plugin-commonjs";
-import json from "@rollup/plugin-json";
-import {nodeResolve} from "@rollup/plugin-node-resolve";
+import rollupPluginCommonJS from "@rollup/plugin-commonjs";
+import rollupPluginJson from "@rollup/plugin-json";
+import {nodeResolve as rollupPluginNodeResolve} from "@rollup/plugin-node-resolve";
 import chalk from "chalk";
 import {parse} from "fast-url-parser";
 import * as fs from "fs";
@@ -8,15 +8,16 @@ import {existsSync, mkdirSync, readFileSync, rmdirSync, statSync} from "fs";
 import path, {posix} from "path";
 import picomatch from "picomatch";
 import resolve from "resolve";
-import {Plugin, rollup, RollupBuild, RollupOptions} from "rollup";
-import sourcemaps from "rollup-plugin-sourcemaps";
-import {Options as TerserOptions, terser} from "rollup-plugin-terser";
+import {Plugin, rollup, RollupBuild, RollupOptions, RollupWarning} from "rollup";
+import rollupPluginSourcemaps from "rollup-plugin-sourcemaps";
+import {Options as TerserOptions, terser as rollupPluginTerser} from "rollup-plugin-terser";
 import log from "tiny-node-logger";
 import {ESNextToolsConfig} from "./config";
 import {bareNodeModule, parsePathname} from "./es-import-utils";
-import {dummyModule, DummyModuleOptions} from "./rollup-plugin-dummy-module";
-import {moduleProxy} from "./rollup-plugin-module-proxy";
-import {rewriteImports} from "./rollup-plugin-rewrite-imports";
+import {rollupPluginCatchUnresolved} from "./rollup-plugin-catch-unresolved";
+import {DummyModuleOptions, rollupPluginDummyModule} from "./rollup-plugin-dummy-module";
+import {rollupPluginEntryProxy} from "./rollup-plugin-entry-proxy";
+import {rollupPluginRewriteImports} from "./rollup-plugin-rewrite-imports";
 import {readWorkspaces} from "./workspaces";
 
 interface PackageMeta {
@@ -194,23 +195,24 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
     }
 
     const rollupPlugins = [
-        dummyModule(config),
-        rewriteImports({importMap, resolver: resolveImport, squash}),
-        nodeResolve({
+        rollupPluginDummyModule(config),
+        rollupPluginRewriteImports({importMap, resolver: resolveImport, squash}),
+        rollupPluginNodeResolve({
             rootDir: config.rootDir,
             moduleDirectories: config.resolve.paths
         }),
-        commonjs(),
-        json(),
-        sourcemaps(),
-        config.terser && terser(config.terser),
+        rollupPluginCommonJS(),
+        rollupPluginJson(),
+        rollupPluginSourcemaps(),
+        config.terser && rollupPluginTerser(config.terser),
         ...(
             config.plugins || []
-        )
+        ),
+        rollupPluginCatchUnresolved()
     ].filter(Boolean) as [Plugin];
 
-    const cjsModuleProxy = moduleProxy("cjs-proxy");
-    const esmModuleProxy = moduleProxy("esm-proxy");
+    const cjsModuleProxy = rollupPluginEntryProxy("cjs-proxy");
+    const esmModuleProxy = rollupPluginEntryProxy("esm-proxy");
 
     function taskPlugins(pkg: PackageMeta, filename: string | null) {
         if (filename) {
@@ -260,7 +262,7 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
      *
      * @param pathname
      */
-    function rollupWebModule(pathname: string):Promise<void> {
+    function rollupWebModule(pathname: string): Promise<void> {
 
         if (importMap.imports[pathname]) {
             return ALREADY_RESOLVED;
@@ -277,7 +279,7 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
 
         return pending.get(pathname)!;
 
-        async function rollupWebModuleTask(module: string, filename: string | null):Promise<void> {
+        async function rollupWebModuleTask(module: string, filename: string | null): Promise<void> {
 
             log.info("rollup web module:", pathname);
 
@@ -291,7 +293,9 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
             const bundle = await rollup({
                 input: pathname,
                 plugins: taskPlugins(pkg, filename),
-                external: config.external
+                treeshake: {moduleSideEffects: 'no-external'},
+                external: config.external,
+                onwarn: warningHandler
             });
 
             try {
@@ -309,6 +313,22 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
                 log.info`rolled up: ${chalk.magenta(pathname)} in: ${chalk.magenta(elapsed)}ms`;
             }
         }
+    }
+
+    function level(code: string | undefined) {
+        if (code === "CIRCULAR_DEPENDENCY" ||
+            code === "NAMESPACE_CONFLICT" ||
+            code === "THIS_IS_UNDEFINED" ||
+            code === "UNUSED_EXTERNAL_IMPORT"
+        ) {
+            return "debug";
+        } else {
+            return "warn";
+        }
+    }
+
+    function warningHandler({code, message, loc, importer}: RollupWarning) {
+        log[level(code)](message, loc ? `in: ${loc.file} at line:${loc.line}, column:${loc.column}` : "");
     }
 
     return {

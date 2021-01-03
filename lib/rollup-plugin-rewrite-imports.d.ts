@@ -5,4 +5,4 @@ export declare type RewriteImportsOptions = {
     resolver: ImportResolver;
     squash: (test: string) => boolean;
 };
-export declare function rewriteImports({ importMap, resolver: resolveImport, squash }: RewriteImportsOptions): Plugin;
+export declare function rollupPluginRewriteImports({ importMap, resolver: resolveImport, squash }: RewriteImportsOptions): Plugin;

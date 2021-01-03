@@ -14,6 +14,7 @@
     "es-module-lexer": "^0.3.26",
     "fast-url-parser": "^1.1.3",
     "glob": "^7.1.6",
+    "is-builtin-module": "^3.0.0",
     "picomatch": "^2.2.2",
     "resolve": "^1.19.0",
     "rollup": "^2.35.1",

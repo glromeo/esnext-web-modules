@@ -49,9 +49,9 @@ function scanEsm(filename: string, collected: Map<string, string[]>, encountered
 
 export type ModuleProxyType = "cjs-proxy" | "esm-proxy";
 
-export function moduleProxy(type: ModuleProxyType): Plugin {
+export function rollupPluginEntryProxy(type: ModuleProxyType): Plugin {
     return {
-        name: "module-proxy",
+        name: "rollup-plugin-entry-proxy",
         async buildStart() {
             await parseCjsReady;
             await parseEsmReady;
