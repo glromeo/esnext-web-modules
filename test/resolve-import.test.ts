@@ -120,4 +120,10 @@ describe("resolve import", function () {
         let {resolveImport} = setup("fixture");
         expect(await resolveImport("fast-diff")).to.equal("/web_modules/fast-diff.js");
     });
+
+    it("tippy.js", async function () {
+        let {resolveImport} = setup("fixture");
+        expect(await resolveImport("tippy.js")).to.equal("/web_modules/tippy.js.js");
+    });
+
 });
