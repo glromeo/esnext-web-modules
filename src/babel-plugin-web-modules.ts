@@ -1,7 +1,8 @@
 import {traverse} from "@babel/core";
 import path from "path";
 import log from "tiny-node-logger";
-import {isBare, memoize} from "esnext-server-extras";
+import {memoize} from "esnext-server-extras";
+import {isBare} from "./es-import-utils";
 import {useWebModules} from "./web-modules";
 
 export const useWebModulesPlugin = memoize(config => {

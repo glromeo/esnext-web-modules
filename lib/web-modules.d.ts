@@ -23,13 +23,4 @@ export declare type ImportResolver = (url: string, basedir?: string) => Promise<
  *
  * @param config
  */
-export declare function useWebModules(config?: WebModulesConfig): {
-    outDir: string;
-    importMap: {
-        imports: {
-            [x: string]: string;
-        };
-    };
-    resolveImport: (url: string, basedir?: string | undefined) => Promise<string>;
-    rollupWebModule: (pathname: string) => Promise<void>;
-};
+export declare const useWebModules: any;

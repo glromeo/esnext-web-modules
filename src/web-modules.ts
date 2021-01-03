@@ -3,8 +3,7 @@ import rollupPluginJson from "@rollup/plugin-json";
 import {nodeResolve as rollupPluginNodeResolve} from "@rollup/plugin-node-resolve";
 import chalk from "chalk";
 import {parse} from "fast-url-parser";
-import * as fs from "fs";
-import {existsSync, mkdirSync, readFileSync, rmdirSync, statSync} from "fs";
+import {existsSync, mkdirSync, promises as fsp, readFileSync, rmdirSync, statSync} from "fs";
 import path, {posix} from "path";
 import picomatch from "picomatch";
 import resolve from "resolve";
@@ -19,6 +18,7 @@ import {DummyModuleOptions, rollupPluginDummyModule} from "./rollup-plugin-dummy
 import {rollupPluginEntryProxy} from "./rollup-plugin-entry-proxy";
 import {rollupPluginRewriteImports} from "./rollup-plugin-rewrite-imports";
 import {readWorkspaces} from "./workspaces";
+import {memoize} from "esnext-server-extras";
 
 interface PackageMeta {
     name: string;
@@ -52,7 +52,7 @@ export type ImportResolver = (url: string, basedir?: string) => Promise<string>;
  *
  * @param config
  */
-export function useWebModules(config: WebModulesConfig = loadWebModulesConfig()) {
+export const useWebModules = memoize((config: WebModulesConfig = loadWebModulesConfig()) => {
 
     const outDir = path.join(config.rootDir, "web_modules");
 
@@ -85,12 +85,14 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
         try {
             let importMap = JSON.parse(readFileSync(`${outDir}/import-map.json`, "utf-8"));
 
-            for (const [key, pathname] of Object.entries(importMap.imports)) try {
-                let {mtime} = statSync(path.join(config.rootDir, String(pathname)));
-                log.info("import:", key, pathname, mtime.toISOString());
-            } catch (e) {
-                log.warn("import:", key, "was stale");
-                delete importMap[key];
+            for (const [key, pathname] of Object.entries(importMap.imports)) {
+                try {
+                    let {mtime} = statSync(path.join(config.rootDir, String(pathname)));
+                    log.info("web_module:", chalk.green(key), "->", chalk.gray(pathname));
+                } catch (e) {
+                    log.warn("not found:", chalk.blue(key), "->", chalk.red(pathname));
+                    delete importMap[key];
+                }
             }
 
             return importMap;
@@ -100,7 +102,7 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
     }
 
     function writeImportMap(outDir: string, importMap: ImportMap): Promise<void> {
-        return fs.promises.writeFile(`${outDir}/import-map.json`, JSON.stringify(importMap, null, "  "));
+        return fsp.writeFile(`${outDir}/import-map.json`, JSON.stringify(importMap, null, "  "));
     }
 
     /**
@@ -337,4 +339,4 @@ export function useWebModules(config: WebModulesConfig = loadWebModulesConfig())
         resolveImport,
         rollupWebModule
     };
-}
+});
