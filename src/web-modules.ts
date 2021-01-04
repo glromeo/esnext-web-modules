@@ -4,21 +4,20 @@ import {nodeResolve as rollupPluginNodeResolve} from "@rollup/plugin-node-resolv
 import chalk from "chalk";
 import {parse} from "fast-url-parser";
 import {existsSync, mkdirSync, promises as fsp, readFileSync, rmdirSync, statSync} from "fs";
+import memoized from "nano-memoize";
 import path, {posix} from "path";
 import picomatch from "picomatch";
-import resolve from "resolve";
+import resolve, {Opts} from "resolve";
 import {Plugin, rollup, RollupBuild, RollupOptions, RollupWarning} from "rollup";
 import rollupPluginSourcemaps from "rollup-plugin-sourcemaps";
 import {Options as TerserOptions, terser as rollupPluginTerser} from "rollup-plugin-terser";
 import log from "tiny-node-logger";
-import {ESNextToolsConfig} from "./config";
 import {bareNodeModule, parsePathname} from "./es-import-utils";
 import {rollupPluginCatchUnresolved} from "./rollup-plugin-catch-unresolved";
-import {DummyModuleOptions, rollupPluginDummyModule} from "./rollup-plugin-dummy-module";
 import {rollupPluginEntryProxy} from "./rollup-plugin-entry-proxy";
+import {rollupPluginFakeModules} from "./rollup-plugin-fake-modules";
 import {rollupPluginRewriteImports} from "./rollup-plugin-rewrite-imports";
 import {readWorkspaces} from "./workspaces";
-import {memoize} from "esnext-server-extras";
 
 interface PackageMeta {
     name: string;
@@ -31,17 +30,30 @@ export interface ImportMap {
     imports: { [packageName: string]: string };
 }
 
-export type WebModulesConfig = ESNextToolsConfig & RollupOptions & DummyModuleOptions & {
+export type WebModulesOptions = RollupOptions & {
+    rootDir: string;
+    resolve: Opts;
     clean?: boolean
     squash?: string | string[]
-    terser?: TerserOptions
+    terser?: TerserOptions,
+    fakes?: { [module: string]: string }
 };
 
-export function loadWebModulesConfig(): WebModulesConfig {
+export type ImportResolver = (url: string, basedir?: string) => Promise<string>;
+
+export function defaultOptions(): WebModulesOptions {
     return require(require.resolve(`${process.cwd()}/web-modules.config.js`));
 }
 
-export type ImportResolver = (url: string, basedir?: string) => Promise<string>;
+function initWebModules(rootDir: string, clean?: boolean): { outDir: string } {
+    const outDir = path.join(rootDir, "web_modules");
+    if (clean && existsSync(outDir)) {
+        rmdirSync(outDir, {recursive: true});
+        log.info("cleaned web_modules directory");
+    }
+    mkdirSync(outDir, {recursive: true});
+    return {outDir};
+}
 
 /**
  *   __        __   _       __  __           _       _
@@ -52,32 +64,26 @@ export type ImportResolver = (url: string, basedir?: string) => Promise<string>;
  *
  * @param config
  */
-export const useWebModules = memoize((config: WebModulesConfig = loadWebModulesConfig()) => {
+export const useWebModules = memoized((options: WebModulesOptions = defaultOptions()) => {
 
-    const outDir = path.join(config.rootDir, "web_modules");
+    const {outDir} = initWebModules(options.rootDir, options.clean);
 
-    if (config.clean && existsSync(outDir)) {
-        rmdirSync(outDir, {recursive: true});
-        log.info("cleaned web_modules directory");
-    }
-    mkdirSync(outDir, {recursive: true});
-
-    if (!config.resolve) {
-        config.resolve = {
-            paths: [path.join(config.rootDir, "node_modules")]
+    if (!options.resolve) {
+        options.resolve = {
+            paths: [path.join(options.rootDir, "node_modules")]
         };
     }
 
-    if (!config.squash) {
-        config.squash = ["@babel/runtime/**"];
+    if (!options.squash) {
+        options.squash = ["@babel/runtime/**"];
     }
 
-    const squash = config.squash ? picomatch(config.squash) : test => false;
+    const squash = options.squash ? picomatch(options.squash) : test => false;
 
     const importMap = {
         imports: {
             ...readImportMap(outDir).imports,
-            ...readWorkspaces(config.rootDir).imports
+            ...readWorkspaces(options.rootDir).imports
         }
     };
 
@@ -87,10 +93,9 @@ export const useWebModules = memoize((config: WebModulesConfig = loadWebModulesC
 
             for (const [key, pathname] of Object.entries(importMap.imports)) {
                 try {
-                    let {mtime} = statSync(path.join(config.rootDir, String(pathname)));
-                    log.info("web_module:", chalk.green(key), "->", chalk.gray(pathname));
+                    let {mtime} = statSync(path.join(options.rootDir, String(pathname)));
+                    log.debug("web_module:", chalk.green(key), "->", chalk.gray(pathname));
                 } catch (e) {
-                    log.warn("not found:", chalk.blue(key), "->", chalk.red(pathname));
                     delete importMap[key];
                 }
             }
@@ -196,19 +201,41 @@ export const useWebModules = memoize((config: WebModulesConfig = loadWebModulesC
         }
     }
 
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    const resolveOptions = {basedir: options.rootDir, moduleDirectory: options.resolve.paths};
+
+    function requireManifest(module: string) {
+        return new Promise<PackageMeta>(function (done, fail) {
+            resolve(`${module}/package.json`, resolveOptions, (err, resolved, pkg) => pkg ? done(pkg) : fail(err));
+        });
+    }
+
+    function getModuleDirectories(options: WebModulesOptions) {
+        const moduleDirectory = options.resolve.moduleDirectory;
+        return Array.isArray(moduleDirectory) ? [...moduleDirectory] : moduleDirectory ? [moduleDirectory] : undefined;
+    }
+
     const rollupPlugins = [
-        rollupPluginDummyModule(config),
-        rollupPluginRewriteImports({importMap, resolver: resolveImport, squash}),
+        rollupPluginFakeModules({
+            fakes: options.fakes,
+            resolveOptions
+        }),
+        rollupPluginRewriteImports({
+            importMap,
+            resolveImport,
+            squash
+        }),
         rollupPluginNodeResolve({
-            rootDir: config.rootDir,
-            moduleDirectories: config.resolve.paths
+            rootDir: options.rootDir,
+            moduleDirectories: getModuleDirectories(options)
         }),
         rollupPluginCommonJS(),
         rollupPluginJson(),
         rollupPluginSourcemaps(),
-        config.terser && rollupPluginTerser(config.terser),
+        options.terser && rollupPluginTerser(options.terser),
         ...(
-            config.plugins || []
+            options.plugins || []
         ),
         rollupPluginCatchUnresolved()
     ].filter(Boolean) as [Plugin];
@@ -234,23 +261,8 @@ export const useWebModules = memoize((config: WebModulesConfig = loadWebModulesC
         return rollupPlugins;
     }
 
-    const pending = new Map<string, Promise<void>>();
-
-    const resolveOptions = {basedir: config.rootDir, moduleDirectory: config.resolve.paths};
-
-    function requireManifest(module: string) {
-        return new Promise<PackageMeta>(function (done, fail) {
-            resolve(`${module}/package.json`, resolveOptions, function (err, resolved, pkg) {
-                if (pkg) {
-                    done(pkg);
-                } else {
-                    fail(err);
-                }
-            });
-        });
-    }
-
     const ALREADY_RESOLVED = Promise.resolve();
+    const pending = new Map<string, Promise<void>>();
 
     /**
      *              _ _         __          __  _     __  __           _       _
@@ -295,15 +307,15 @@ export const useWebModules = memoize((config: WebModulesConfig = loadWebModulesC
             const bundle = await rollup({
                 input: pathname,
                 plugins: taskPlugins(pkg, filename),
-                treeshake: {moduleSideEffects: 'no-external'},
-                external: config.external,
+                treeshake: {moduleSideEffects: "no-external"},
+                external: options.external,
                 onwarn: warningHandler
             });
 
             try {
                 await bundle.write({
                     file: `${outDir}/${filename ? pathname : module + ".js"}`,
-                    sourcemap: !config.terser
+                    sourcemap: !options.terser
                 });
                 if (!filename) {
                     updateImportMap(module, bundle);

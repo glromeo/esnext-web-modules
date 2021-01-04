@@ -1,6 +1,6 @@
 import {expect} from "chai";
 import * as path from "path";
-import {useWebModules, WebModulesConfig} from "../src";
+import {useWebModules, WebModulesOptions} from "../src";
 
 describe("resolve import", function () {
 
@@ -8,9 +8,8 @@ describe("resolve import", function () {
         const rootDir = path.resolve(__dirname, dirname);
         const webModulesDir = path.resolve(__dirname, "fixture/web_modules");
 
-        const options: WebModulesConfig = {
+        const options: WebModulesOptions = {
             clean: true,
-            baseDir: __dirname,
             rootDir: rootDir,
             resolve: {
                 paths: [path.resolve(__dirname, "fixture/node_modules")]

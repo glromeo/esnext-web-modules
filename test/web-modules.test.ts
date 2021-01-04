@@ -3,7 +3,7 @@ import * as fs from "fs";
 import {existsSync, readFileSync} from "fs";
 import {join, relative, resolve} from "path";
 import {SourceMapConsumer} from "source-map";
-import {useWebModules} from "../src";
+import {defaultOptions, useWebModules} from "../src";
 
 function readExports(path: string) {
     let out = fs.readFileSync(join(__dirname, path), "utf-8");
@@ -29,8 +29,10 @@ describe("web modules", function () {
     const fixtureDir = resolve(__dirname, "fixture");
 
     it("can read configuration", function () {
+        const cwd = process.cwd();
         process.chdir(fixtureDir);
         let {outDir} = useWebModules();
+        process.chdir(cwd);
         expect(relative(fixtureDir, outDir).replace(/\\/g, "/")).to.equal("web_modules");
     });
 
@@ -38,10 +40,9 @@ describe("web modules", function () {
 
         let {rollupWebModule} = useWebModules({
             clean: true,
-            baseDir: __dirname,
             rootDir: fixtureDir + "/react",
             resolve: {
-                paths: [resolve(__dirname, "fixture/node_modules")]
+                moduleDirectory: [resolve(__dirname, "fixture/node_modules")]
             }
         });
 
@@ -92,20 +93,14 @@ describe("web modules", function () {
 
     it("can bundle react-dom", async function () {
 
-        let webModulesConfig = /* loadWebModulesConfig(); */ {
-            dummies: {
-                "react/cjs/react.production.min.js": `module.exports = {};`,
-                "react-dom/cjs/react-dom.production.min.js": `module.exports = {};`
-            }
-        };
+        let webModulesConfig = defaultOptions();
 
         let {rollupWebModule} = useWebModules({
             clean: true,
             ...webModulesConfig,
-            baseDir: __dirname,
             rootDir: fixtureDir + "/react",
             resolve: {
-                paths: [join(__dirname, "fixture/node_modules")]
+                moduleDirectory: [join(__dirname, "fixture/node_modules")]
             }
         });
 
@@ -151,10 +146,9 @@ describe("web modules", function () {
 
         let {rollupWebModule, resolveImport} = useWebModules({
             clean: true,
-            baseDir: __dirname,
             rootDir: fixtureDir + "/lit-html",
             resolve: {
-                paths: ["fixture/node_modules"]
+                moduleDirectory: ["fixture/node_modules"]
             }
         });
 
@@ -260,10 +254,9 @@ describe("web modules", function () {
 
         let {rollupWebModule, resolveImport} = useWebModules({
             clean: true,
-            baseDir: __dirname,
             rootDir: fixtureDir + "/lit-html",
             resolve: {
-                paths: ["fixture/node_modules"]
+                moduleDirectory: ["fixture/node_modules"]
             },
             terser: {}
         });
@@ -339,10 +332,9 @@ describe("web modules", function () {
     it("to bundle lit-html is a prerequisite to bundle lit-html/lib/shady-render.js", async function () {
         let {rollupWebModule, resolveImport} = useWebModules({
             clean: true,
-            baseDir: __dirname,
             rootDir: fixtureDir + "/lit-html",
             resolve: {
-                paths: ["fixture/node_modules"]
+                moduleDirectory: ["fixture/node_modules"]
             }
         });
         await rollupWebModule("lit-html/lib/shady-render.js");
@@ -353,10 +345,9 @@ describe("web modules", function () {
 
         let {rollupWebModule} = useWebModules({
             clean: true,
-            baseDir: __dirname,
             rootDir: fixtureDir + "/lit-element",
             resolve: {
-                paths: [join(__dirname, "fixture/node_modules")]
+                moduleDirectory: [join(__dirname, "fixture/node_modules")]
             }
         });
 
@@ -396,10 +387,9 @@ describe("web modules", function () {
 
         let {rollupWebModule} = useWebModules({
             clean: true,
-            baseDir: __dirname,
             rootDir: fixtureDir + "/bootstrap",
             resolve: {
-                paths: [join(__dirname, "fixture/node_modules")]
+                moduleDirectory: [join(__dirname, "fixture/node_modules")]
             }
         });
 
@@ -444,10 +434,9 @@ describe("web modules", function () {
 
         let {rollupWebModule} = useWebModules({
             clean: true,
-            baseDir: __dirname,
             rootDir: fixtureDir + "/babel-runtime",
             resolve: {
-                paths: [join(__dirname, "fixture/node_modules")]
+                moduleDirectory: [join(__dirname, "fixture/node_modules")]
             },
             squash: ["@babel/runtime/**"]
         });

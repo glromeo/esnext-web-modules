@@ -4,15 +4,15 @@ import {OutputOptions, Plugin, RenderedChunk} from "rollup";
 import {bareNodeModule, isBare} from "./es-import-utils";
 import {ImportMap, ImportResolver} from "./web-modules";
 
-export type RewriteImportsOptions = {
+export type PluginRewriteImportsOptions = {
     importMap: ImportMap
-    resolver: ImportResolver
+    resolveImport: ImportResolver
     squash: (test: string) => boolean
 }
 
 const REWRITE_IMPORT = "rollup-plugin-rewrite-imports";
 
-export function rollupPluginRewriteImports({importMap, resolver: resolveImport, squash}: RewriteImportsOptions): Plugin {
+export function rollupPluginRewriteImports({importMap, resolveImport, squash}: PluginRewriteImportsOptions): Plugin {
     return {
         name: "rollup-plugin-rewrite-imports",
         async resolveId(source, importer) {

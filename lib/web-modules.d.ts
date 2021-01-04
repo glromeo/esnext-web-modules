@@ -1,19 +1,23 @@
+import { Opts } from "resolve";
 import { RollupOptions } from "rollup";
 import { Options as TerserOptions } from "rollup-plugin-terser";
-import { ESNextToolsConfig } from "./config";
-import { DummyModuleOptions } from "./rollup-plugin-dummy-module";
 export interface ImportMap {
     imports: {
         [packageName: string]: string;
     };
 }
-export declare type WebModulesConfig = ESNextToolsConfig & RollupOptions & DummyModuleOptions & {
+export declare type WebModulesOptions = RollupOptions & {
+    rootDir: string;
+    resolve: Opts;
     clean?: boolean;
     squash?: string | string[];
     terser?: TerserOptions;
+    fakes?: {
+        [module: string]: string;
+    };
 };
-export declare function loadWebModulesConfig(): WebModulesConfig;
 export declare type ImportResolver = (url: string, basedir?: string) => Promise<string>;
+export declare function defaultOptions(): WebModulesOptions;
 /**
  *   __        __   _       __  __           _       _
  *   \ \      / /__| |__   |  \/  | ___   __| |_   _| | ___  ___
@@ -23,4 +27,13 @@ export declare type ImportResolver = (url: string, basedir?: string) => Promise<
  *
  * @param config
  */
-export declare const useWebModules: any;
+export declare const useWebModules: (options?: WebModulesOptions) => {
+    outDir: string;
+    importMap: {
+        imports: {
+            [x: string]: string;
+        };
+    };
+    resolveImport: (url: string, basedir?: string | undefined) => Promise<string>;
+    rollupWebModule: (pathname: string) => Promise<void>;
+};

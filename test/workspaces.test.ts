@@ -25,7 +25,7 @@ describe("workspaces", function () {
         }
         expect(await resolveImport("@workspaces/module-c")).to.equal("/workspaces/group/module-c/index.js");
 
-        expect(await resolveImport("whatever").catch(e => e.message))
+        expect(await resolveImport("whatever").catch(({message}:Error) => message))
             .to.match(/Cannot find module 'whatever\/package.json'/);
     });
 
