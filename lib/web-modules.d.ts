@@ -6,15 +6,16 @@ export interface ImportMap {
         [packageName: string]: string;
     };
 }
-export declare type WebModulesOptions = RollupOptions & {
+export declare type WebModulesOptions = {
     rootDir: string;
-    resolve: Opts;
     clean?: boolean;
-    squash?: string | string[];
-    terser?: TerserOptions;
+    resolve: Opts;
     fakes?: {
         [module: string]: string;
     };
+    squash?: string | string[];
+    terser?: TerserOptions;
+    rollup?: RollupOptions;
 };
 export declare type ImportResolver = (url: string, basedir?: string) => Promise<string>;
 export declare function defaultOptions(): WebModulesOptions;

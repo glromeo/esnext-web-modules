@@ -30,13 +30,14 @@ export interface ImportMap {
     imports: { [packageName: string]: string };
 }
 
-export type WebModulesOptions = RollupOptions & {
-    rootDir: string;
-    resolve: Opts;
+export type WebModulesOptions = {
+    rootDir: string
     clean?: boolean
+    resolve: Opts
+    fakes?: { [module: string]: string }
     squash?: string | string[]
     terser?: TerserOptions,
-    fakes?: { [module: string]: string }
+    rollup?: RollupOptions
 };
 
 export type ImportResolver = (url: string, basedir?: string) => Promise<string>;
@@ -235,7 +236,7 @@ export const useWebModules = memoized((options: WebModulesOptions = defaultOptio
         rollupPluginSourcemaps(),
         options.terser && rollupPluginTerser(options.terser),
         ...(
-            options.plugins || []
+            options.rollup?.plugins ?? []
         ),
         rollupPluginCatchUnresolved()
     ].filter(Boolean) as [Plugin];
@@ -305,10 +306,10 @@ export const useWebModules = memoized((options: WebModulesOptions = defaultOptio
 
             const startTime = Date.now();
             const bundle = await rollup({
+                ...options.rollup,
                 input: pathname,
                 plugins: taskPlugins(pkg, filename),
-                treeshake: {moduleSideEffects: "no-external"},
-                external: options.external,
+                treeshake: options.rollup?.treeshake ?? {moduleSideEffects: "no-external"},
                 onwarn: warningHandler
             });
 
