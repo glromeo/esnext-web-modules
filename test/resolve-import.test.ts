@@ -36,11 +36,52 @@ describe("resolve import", function () {
             .to.equal("file:///echo.do?query=message");
     });
 
+    it("if an importMap import is present for the pathname resolve to it", async function () {
+
+        let {resolveImport, importMap} = setup("fixture");
+
+        importMap.imports = {
+            "wathever/pathname": "expected/result"
+        };
+
+        expect(await resolveImport("wathever/pathname")).to.equal("expected/result");
+        expect(await resolveImport("wathever/pathname?query=preserved")).to.equal("expected/result?query=preserved");
+    });
+
+    it("a bundled file is resolved to the web module, even if its ext is missing", async function () {
+
+        let {resolveImport, importMap} = setup("fixture");
+
+        importMap.imports = {};
+
+        expect(await resolveImport("lit-html/lib/default-template-processor")).to.equal("/web_modules/lit-html.js");
+    });
+
+    it("typescript sourcefiles in modules are treated as assets (not bundled)", async function () {
+
+        let {resolveImport, importMap} = setup("fixture");
+
+        importMap.imports = {};
+
+        expect(await resolveImport("lit-html/src/lit-html")).to.equal("/web_modules/lit-html/src/lit-html.ts");
+    });
+
+    it("extensionless files are left extensionless, directories resolve to index", async function () {
+
+        let {rootDir, resolveImport, importMap} = setup("fixture");
+
+        importMap.imports = {};
+
+        expect(await resolveImport("lit-html/LICENSE")).to.equal("/node_modules/lit-html/LICENSE?type=module");
+
+        expect(await resolveImport("./home", rootDir)).to.equal("./home/index.ts");
+    });
+
     it("relative imports", async function () {
 
         let {rootDir, resolveImport} = setup("fixture/workspaces");
 
-        expect(await resolveImport("./epsilon")).to.equal("./epsilon.js");
+        expect(await resolveImport("./epsilon")).to.equal("./epsilon?type=module");
 
         // should resolve fixture/alpha/beta/delta.sigma adding query for type=module
         expect(await resolveImport("./delta.sigma")).to.equal(
@@ -105,7 +146,7 @@ describe("resolve import", function () {
 
     it("relative imports of asset files", async function () {
         let {resolveImport} = setup("fixture");
-        expect(await resolveImport("./styles")).to.equal("./styles.js");
+        expect(await resolveImport("./styles")).to.equal("./styles?type=module");
         expect(await resolveImport("./styles.css")).to.equal("./styles.css?type=module");
         expect(await resolveImport("../styles.scss")).to.equal("../styles.scss?type=module");
     });

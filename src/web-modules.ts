@@ -1,12 +1,12 @@
 import rollupPluginCommonJS from "@rollup/plugin-commonjs";
 import rollupPluginJson from "@rollup/plugin-json";
 import {nodeResolve as rollupPluginNodeResolve} from "@rollup/plugin-node-resolve";
+import rollupPluginReplace from "@rollup/plugin-replace";
 import chalk from "chalk";
 import {parse} from "fast-url-parser";
 import {existsSync, mkdirSync, promises as fsp, readFileSync, rmdirSync, statSync} from "fs";
 import memoized from "nano-memoize";
 import path, {posix} from "path";
-import picomatch from "picomatch";
 import resolve, {Opts} from "resolve";
 import {Plugin, rollup, RollupBuild, RollupOptions, RollupWarning} from "rollup";
 import rollupPluginSourcemaps from "rollup-plugin-sourcemaps";
@@ -14,8 +14,8 @@ import {Options as TerserOptions, terser as rollupPluginTerser} from "rollup-plu
 import log from "tiny-node-logger";
 import {bareNodeModule, parsePathname} from "./es-import-utils";
 import {rollupPluginCatchUnresolved} from "./rollup-plugin-catch-unresolved";
-import {rollupPluginEntryProxy} from "./rollup-plugin-entry-proxy";
-import {rollupPluginFakeModules} from "./rollup-plugin-fake-modules";
+import {rollupPluginCjsProxy} from "./rollup-plugin-cjs-proxy";
+import {rollupPluginEsmProxy} from "./rollup-plugin-esm-proxy";
 import {rollupPluginRewriteImports} from "./rollup-plugin-rewrite-imports";
 import {readWorkspaces} from "./workspaces";
 
@@ -33,11 +33,11 @@ export interface ImportMap {
 export type WebModulesOptions = {
     rootDir: string
     clean?: boolean
+    environment: string
     resolve: Opts
-    fakes?: { [module: string]: string }
-    squash?: string | string[]
+    external: string | string[]
     terser?: TerserOptions,
-    rollup?: RollupOptions
+    rollup: RollupOptions
 };
 
 export type ImportResolver = (url: string, basedir?: string) => Promise<string>;
@@ -46,7 +46,7 @@ export function defaultOptions(): WebModulesOptions {
     return require(require.resolve(`${process.cwd()}/web-modules.config.js`));
 }
 
-function initWebModules(rootDir: string, clean?: boolean): { outDir: string } {
+function initFileSystem(rootDir: string, clean?: boolean): { outDir: string } {
     const outDir = path.join(rootDir, "web_modules");
     if (clean && existsSync(outDir)) {
         rmdirSync(outDir, {recursive: true});
@@ -67,19 +67,17 @@ function initWebModules(rootDir: string, clean?: boolean): { outDir: string } {
  */
 export const useWebModules = memoized((options: WebModulesOptions = defaultOptions()) => {
 
-    const {outDir} = initWebModules(options.rootDir, options.clean);
+    const {outDir} = initFileSystem(options.rootDir, options.clean);
 
-    if (!options.resolve) {
-        options.resolve = {
-            paths: [path.join(options.rootDir, "node_modules")]
-        };
-    }
+    if (!options.environment) options.environment = "development";
+    if (!options.resolve) options.resolve = {};
+    if (!options.resolve.paths) options.resolve.paths = [path.join(options.rootDir, "node_modules")];
+    if (!options.resolve.extensions) options.resolve.extensions = [".ts", ".tsx", ".js", ".jsx"];
+    if (!options.external) options.external = ["@babel/runtime/**"];
+    if (!options.rollup) options.rollup = {};
+    if (!options.rollup.plugins) options.rollup.plugins = [];
 
-    if (!options.squash) {
-        options.squash = ["@babel/runtime/**"];
-    }
-
-    const squash = options.squash ? picomatch(options.squash) : test => false;
+    const resolveOptions = {basedir: options.rootDir, ...options.resolve};
 
     const importMap = {
         imports: {
@@ -87,6 +85,15 @@ export const useWebModules = memoized((options: WebModulesOptions = defaultOptio
             ...readWorkspaces(options.rootDir).imports
         }
     };
+
+    let appPkg: PackageMeta = require(require.resolve("./package.json", {paths: [options.rootDir]}));
+
+    const entryModules = appPkg.dependencies
+        ? new Set([
+            ...Object.keys(appPkg.dependencies || {}),
+            ...Object.keys(appPkg.peerDependencies || {})
+        ])
+        : new Set<string>();
 
     function readImportMap(outDir: string): ImportMap {
         try {
@@ -122,8 +129,8 @@ export const useWebModules = memoized((options: WebModulesOptions = defaultOptio
      */
     function updateImportMap(module: string, bundle: RollupBuild) {
         let outputUrl = `/web_modules/${module}.js`;
-        for (const file of bundle.watchFiles.slice(1)) {
-            if (file.charCodeAt(0) !== 0 && !file.endsWith("?commonjs-proxy")) {
+        for (const file of bundle.watchFiles) {
+            if (file.charCodeAt(0) !== 0 && !file.endsWith("-proxy")) {
                 let bare = bareNodeModule(file);
                 importMap.imports[bare] = outputUrl;
             }
@@ -131,9 +138,7 @@ export const useWebModules = memoized((options: WebModulesOptions = defaultOptio
         importMap.imports[module] = outputUrl;
     }
 
-    function resolveModuleType(ext: string, basedir: string | undefined) {
-        return "module";
-    }
+    const isModule = /\.m?[tj]sx?$/;
 
     /**
      *                       _          _____                           _
@@ -148,7 +153,7 @@ export const useWebModules = memoized((options: WebModulesOptions = defaultOptio
      * @param url
      * @param basedir
      */
-    async function resolveImport(url: string, basedir?: string): Promise<string> {
+    async function resolveImport(url: string, basedir: string = process.cwd()): Promise<string> {
         let {
             hostname,
             pathname,
@@ -169,12 +174,12 @@ export const useWebModules = memoized((options: WebModulesOptions = defaultOptio
             if (filename) {
                 let ext = posix.extname(filename);
                 if (!ext) {
-                    ext = ".js";
+                    ext = resolveExt(module, filename, basedir);
                     filename += ext;
                 }
-                if (ext !== ".js" && ext !== ".mjs") {
+                if (!isModule.test(ext)) {
                     let type = resolveModuleType(ext, basedir);
-                    search = search ? `type=${type}&${search.substring(1)}` : `type=${type}`;
+                    search = search ? `?type=${type}&${search.slice(1)}` : `?type=${type}`;
                     if (module) {
                         resolved = `/node_modules/${module}/${filename}`;
                     } else {
@@ -196,15 +201,42 @@ export const useWebModules = memoized((options: WebModulesOptions = defaultOptio
         }
 
         if (search) {
-            return resolved + "?" + search;
+            return resolved + search;
         } else {
             return resolved;
         }
     }
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    function resolveExt(module: string | null, filename: string, basedir: string) {
+        let pathname;
+        if (module) {
+            const resolved = resolve.sync(`${module}/${filename}`, resolveOptions);
+            pathname = path.join(resolved.substring(0, resolved.lastIndexOf("node_modules" + path.sep)), "node_modules", module, filename);
+        } else {
+            pathname = path.join(basedir, filename);
+        }
+        try {
+            let stats = statSync(pathname);
+            if (stats.isDirectory()) {
+                pathname = path.join(pathname, "index");
+                for (const ext of options.resolve.extensions!) {
+                    if (existsSync(pathname + ext)) return `/index${ext}`;
+                }
+            }
+            return "";
+        } catch (ignored) {
+            for (const ext of options.resolve.extensions!) {
+                if (existsSync(pathname + ext)) return ext;
+            }
+            return "";
+        }
+    }
 
-    const resolveOptions = {basedir: options.rootDir, moduleDirectory: options.resolve.paths};
+    function resolveModuleType(ext: string, basedir: string | undefined) {
+        return "module";
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     function requireManifest(module: string) {
         return new Promise<PackageMeta>(function (done, fail) {
@@ -217,49 +249,62 @@ export const useWebModules = memoized((options: WebModulesOptions = defaultOptio
         return Array.isArray(moduleDirectory) ? [...moduleDirectory] : moduleDirectory ? [moduleDirectory] : undefined;
     }
 
-    const rollupPlugins = [
-        rollupPluginFakeModules({
-            fakes: options.fakes,
-            resolveOptions
-        }),
-        rollupPluginRewriteImports({
-            importMap,
-            resolveImport,
-            squash
-        }),
-        rollupPluginNodeResolve({
-            rootDir: options.rootDir,
-            moduleDirectories: getModuleDirectories(options)
-        }),
-        rollupPluginCommonJS(),
-        rollupPluginJson(),
-        rollupPluginSourcemaps(),
-        options.terser && rollupPluginTerser(options.terser),
-        ...(
-            options.rollup?.plugins ?? []
-        ),
-        rollupPluginCatchUnresolved()
-    ].filter(Boolean) as [Plugin];
+    const pluginCjsProxy = rollupPluginCjsProxy({entryModules});
+    const pluginEsmProxy = rollupPluginEsmProxy({entryModules});
+    const pluginReplace = rollupPluginReplace({
+        "process.env.NODE_ENV": JSON.stringify(options.environment)
+    });
+    const pluginRewriteImports = rollupPluginRewriteImports({
+        importMap,
+        resolveImport,
+        entryModules,
+        resolveOptions,
+        external: options.external
+    });
+    const pluginEsmNodeResolve = rollupPluginNodeResolve({
+        rootDir: options.rootDir,
+        mainFields: ["browser:module", "module", "browser", "main"],
+        extensions: [".mjs", ".cjs", ".js", ".json"],
+        preferBuiltins: true,
+        moduleDirectories: getModuleDirectories(options)
+    });
+    const pluginCjsNodeResolve = rollupPluginNodeResolve({
+        rootDir: options.rootDir,
+        mainFields: ["main"],
+        extensions: [".cjs", ".js", ".json"],
+        preferBuiltins: true,
+        moduleDirectories: getModuleDirectories(options)
+    });
+    const pluginCommonJS = rollupPluginCommonJS();
+    const pluginJson = rollupPluginJson({
+        preferConst: true,
+        indent: "  ",
+        compact: false,
+        namedExports: true
+    });
+    const pluginSourcemaps = rollupPluginSourcemaps();
+    const pluginTerser = rollupPluginTerser(options.terser);
+    const pluginCatchUnresolved = rollupPluginCatchUnresolved();
 
-    const cjsModuleProxy = rollupPluginEntryProxy("cjs-proxy");
-    const esmModuleProxy = rollupPluginEntryProxy("esm-proxy");
-
-    function taskPlugins(pkg: PackageMeta, filename: string | null) {
-        if (filename) {
-            if (squash(pkg.name)) {
-                return [esmModuleProxy, ...rollupPlugins];
-            }
-        } else {
-            if (squash(pkg.name)) {
-                return rollupPlugins.slice(2);
-            }
-            if (pkg.module || pkg["jsnext:main"] || pkg.main?.endsWith(".mjs")) {
-                return [esmModuleProxy, ...rollupPlugins];
-            } else {
-                return [cjsModuleProxy, ...rollupPlugins];
-            }
+    function selectTaskPlugins(pkg: PackageMeta, filename: string | null): Plugin[] | null {
+        if (!pkg.main) {
+            return null;
         }
-        return rollupPlugins;
+        let isEsm = pkg.module || pkg["jsnext:main"] || pkg.main.endsWith(".mjs");
+        return [
+            filename ? false : isEsm ? pluginEsmProxy :pluginCjsProxy,
+            pluginReplace,
+            pluginRewriteImports,
+            isEsm ? pluginEsmNodeResolve : pluginCjsNodeResolve,
+            pluginCommonJS,
+            pluginJson,
+            pluginSourcemaps,
+            options.terser ? pluginTerser : false,
+            pluginCatchUnresolved,
+            ...(
+                options.rollup.plugins!
+            )
+        ].filter(Boolean) as Plugin[];
     }
 
     const ALREADY_RESOLVED = Promise.resolve();
@@ -286,6 +331,10 @@ export const useWebModules = memoized((options: WebModulesOptions = defaultOptio
         if (!pending.has(pathname)) {
             let [module, filename] = parsePathname(pathname) as [string, string | null];
             pending.set(pathname, rollupWebModuleTask(module, filename)
+                .catch(function (err) {
+                    log.error("failed to rollup:", pathname, err);
+                    throw err;
+                })
                 .finally(function () {
                     pending.delete(pathname);
                 })
@@ -298,17 +347,25 @@ export const useWebModules = memoized((options: WebModulesOptions = defaultOptio
 
             log.info("rollup web module:", pathname);
 
-            if (filename && !importMap.imports[module] && !squash(module)) {
+            if (filename && !importMap.imports[module]) {
                 await rollupWebModule(module);
             }
 
             const pkg = await requireManifest(module);
 
             const startTime = Date.now();
+
+            let plugins = selectTaskPlugins(pkg, filename);
+            if (plugins === null) {
+                log.info`nothing to roll up for: ${chalk.magenta(pathname)}`;
+                importMap.imports[module] = `/web_modules/${module}/${module}.js`;
+                return;
+            }
+
             const bundle = await rollup({
                 ...options.rollup,
                 input: pathname,
-                plugins: taskPlugins(pkg, filename),
+                plugins: plugins,
                 treeshake: options.rollup?.treeshake ?? {moduleSideEffects: "no-external"},
                 onwarn: warningHandler
             });
@@ -330,20 +387,20 @@ export const useWebModules = memoized((options: WebModulesOptions = defaultOptio
         }
     }
 
-    function level(code: string | undefined) {
-        if (code === "CIRCULAR_DEPENDENCY" ||
-            code === "NAMESPACE_CONFLICT" ||
-            code === "THIS_IS_UNDEFINED" ||
-            code === "UNUSED_EXTERNAL_IMPORT"
-        ) {
-            return "debug";
-        } else {
-            return "warn";
-        }
-    }
-
     function warningHandler({code, message, loc, importer}: RollupWarning) {
-        log[level(code)](message, loc ? `in: ${loc.file} at line:${loc.line}, column:${loc.column}` : "");
+        let level;
+        switch (code) {
+            case "THIS_IS_UNDEFINED":
+                return;
+            case "CIRCULAR_DEPENDENCY":
+            case "NAMESPACE_CONFLICT":
+            case "UNUSED_EXTERNAL_IMPORT":
+                level = "debug";
+                break;
+            default:
+                level = "warn";
+        }
+        log[level](message, loc ? `in: ${loc.file} at line:${loc.line}, column:${loc.column}` : "");
     }
 
     return {

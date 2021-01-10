@@ -9,6 +9,7 @@
     "lit-element",
     "lit-html",
     "react",
+    "redux",
     "home"
   ],
   "scripts": {

@@ -11,7 +11,9 @@
     "sourceMap": true,
     "noImplicitAny": false,
     "skipLibCheck": true,
-    "allowJs": true
+    "allowJs": true,
+    "removeComments": true,
+    "preserveConstEnums": true
   },
   "ts-node": {
     "transpileOnly": true

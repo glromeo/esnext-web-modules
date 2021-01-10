@@ -1,3 +1,7 @@
 import { Plugin } from "rollup";
-export declare type ModuleProxyType = "cjs-proxy" | "esm-proxy";
-export declare function rollupPluginEntryProxy(type: ModuleProxyType): Plugin;
+import { PackageMeta } from "./web-modules";
+export declare type PluginEsmProxyOptions = {
+    manifest: PackageMeta;
+    entryModules: Set<string>;
+};
+export declare function rollupPluginEntryProxy({ manifest, entryModules }: PluginEsmProxyOptions): Plugin;

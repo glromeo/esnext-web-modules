@@ -2,7 +2,7 @@ import { Opts } from "resolve";
 import { Plugin } from "rollup";
 export declare type PluginFakeModulesOptions = {
     fakes?: {
-        [module: string]: string;
+        [glob: string]: string;
     };
     resolveOptions?: Opts;
 };

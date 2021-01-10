@@ -1,13 +1,11 @@
-import {fail} from "assert";
-import {readWorkspaces} from "../src/workspaces";
-import {useWebModules} from "../src";
-import * as path from "path";
 import {expect} from "chai";
+import * as path from "path";
+import {useWebModules} from "../src";
+import {readWorkspaces} from "../src/workspaces";
 
 describe("workspaces", function () {
 
     let {resolveImport} = useWebModules({
-        baseDir: process.cwd(),
         rootDir: path.join(__dirname, "fixture/workspaces"),
         resolve: {paths: [path.join(__dirname, "fixture/workspaces/node_modules")]}
     })
@@ -17,15 +15,12 @@ describe("workspaces", function () {
 
         expect(await resolveImport("module-b")).to.equal("/workspaces/group/module-b/index.js");
 
-        try {
-            await resolveImport("module-c");
-            fail();
-        } catch (error) {
-            expect(error.message).to.match(/Cannot find module 'module-c\/package.json'/);
-        }
+        expect(await resolveImport("module-c").catch(err => err.message))
+            .to.match(/Cannot find module 'module-c\/package.json'/);
+
         expect(await resolveImport("@workspaces/module-c")).to.equal("/workspaces/group/module-c/index.js");
 
-        expect(await resolveImport("whatever").catch(({message}:Error) => message))
+        expect(await resolveImport("whatever").catch(err => err.message))
             .to.match(/Cannot find module 'whatever\/package.json'/);
     });
 
