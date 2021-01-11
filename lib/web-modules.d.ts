@@ -13,7 +13,7 @@ export declare type WebModulesOptions = {
     resolve: Opts;
     external: string | string[];
     terser?: TerserOptions;
-    rollup?: RollupOptions;
+    rollup: RollupOptions;
 };
 export declare type ImportResolver = (url: string, basedir?: string) => Promise<string>;
 export declare function defaultOptions(): WebModulesOptions;

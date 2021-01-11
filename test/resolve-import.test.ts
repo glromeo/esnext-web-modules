@@ -11,13 +11,12 @@ describe("resolve import", function () {
         const options: WebModulesOptions = {
             clean: true,
             rootDir: rootDir,
+            environment: "development",
             resolve: {
                 paths: [path.resolve(__dirname, "fixture/node_modules")]
             },
-            squash: [
-                "@babel/runtime/**",
-                "smooth-scrollbar"
-            ]
+            external: [],
+            rollup: {}
         };
         return {
             rootDir,

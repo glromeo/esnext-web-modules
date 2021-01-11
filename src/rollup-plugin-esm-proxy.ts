@@ -74,8 +74,9 @@ export function rollupPluginEsmProxy({entryModules}: PluginEsmProxyOptions): Plu
         },
         load(id) {
             if (id.endsWith("?esm-proxy")) {
-                const imported = id.slice(0, -10);
-                const exportsByFilename = scanEsm(imported);
+                const entryId = id.slice(0, -10);
+                const entryUrl = toPosix(entryId);
+                const exportsByFilename = scanEsm(entryId);
                 let proxy = "";
                 for (const [filename, exports] of exportsByFilename.entries()) {
                     if (exports.length > 0) {
@@ -83,7 +84,10 @@ export function rollupPluginEsmProxy({entryModules}: PluginEsmProxyOptions): Plu
                         proxy += `export {\n${exports.join(",\n")}\n} from "${importUrl}";\n`;
                     }
                 }
-                return proxy || fs.readFileSync(imported, "utf-8");
+                if (entryUrl.endsWith("redux-toolkit.esm.js")) {
+                    proxy += `export * from "redux";`;
+                }
+                return proxy || fs.readFileSync(entryId, "utf-8");
             }
             return null;
         }

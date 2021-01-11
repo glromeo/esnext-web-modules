@@ -10,7 +10,8 @@
     "lit-html",
     "react",
     "redux",
-    "home"
+    "home",
+    "iife"
   ],
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

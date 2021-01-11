@@ -80,6 +80,14 @@ export function rollupPluginCjsProxy({entryModules}: PluginCjsProxyOptions): Plu
                 }
                 if (exports.size > 0) {
                     proxy += `export {\n${Array.from(exports).join(",\n")}\n} from "${entryUrl}";\n`;
+                } else {
+                    let moduleInstance = require(entryId);
+                    if (!(!moduleInstance || moduleInstance.constructor !== Object)) {
+                        let filteredExports = Object.keys(moduleInstance).filter(function (moduleExport) {
+                            return moduleExport !== "default" && moduleExport !== "__esModule";
+                        });
+                        proxy += `export {\n${filteredExports.join(",\n")}\n} from "${entryUrl}";\n`;
+                    }
                 }
                 return proxy || fs.readFileSync(entryId, "utf-8");
             }

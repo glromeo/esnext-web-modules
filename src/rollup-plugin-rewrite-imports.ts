@@ -22,15 +22,21 @@ export function rollupPluginRewriteImports(options: PluginRewriteImportsOptions)
     return {
         name: "rollup-plugin-rewrite-imports",
         async resolveId(source, importer) {
+            if (importMap.imports[source]) {
+                console.log("importMap.import:", source, importMap.imports[source]);
+            }
             if (importer && source.charCodeAt(0) !== 0) {
                 if (isBare(source)) {
-                    if (isExternal(source)) {
-                        let external = bareNodeModule(resolve.sync(source, resolveOptions));
-                        return {id: source, external: true, meta: {[REWRITE_IMPORT]: `/node_modules/${external}`}};
-                    }
                     let [module] = parsePathname(source);
                     if (module && entryModules.has(module) || entryModules.has(source)) {
                         return {id: source, external: true, meta: {[REWRITE_IMPORT]: await resolveImport(source)}};
+                    }
+                    if (isExternal(source)) {
+                        let external = bareNodeModule(resolve.sync(source, resolveOptions));
+                        if (external.indexOf("@babel/runtime/helpers") >= 0 && external.indexOf("/esm") === -1) {
+                            external = external.replace("/helpers", "/helpers/esm");
+                        }
+                        return {id: source, external: true, meta: {[REWRITE_IMPORT]: `/node_modules/${external}`}};
                     }
                 } else {
                     let absolute = path.resolve(path.dirname(importer), source);

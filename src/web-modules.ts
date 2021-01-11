@@ -287,12 +287,12 @@ export const useWebModules = memoized((options: WebModulesOptions = defaultOptio
     const pluginCatchUnresolved = rollupPluginCatchUnresolved();
 
     function selectTaskPlugins(pkg: PackageMeta, filename: string | null): Plugin[] | null {
-        if (!pkg.main) {
+        if (!pkg.main && !filename) {
             return null;
         }
-        let isEsm = pkg.module || pkg["jsnext:main"] || pkg.main.endsWith(".mjs");
+        let isEsm = pkg.module || pkg["jsnext:main"] || (pkg.main || filename).endsWith(".mjs");
         return [
-            filename ? false : isEsm ? pluginEsmProxy :pluginCjsProxy,
+            filename ? false : isEsm ? pluginEsmProxy : pluginCjsProxy,
             pluginReplace,
             pluginRewriteImports,
             isEsm ? pluginEsmNodeResolve : pluginCjsNodeResolve,
@@ -351,7 +351,11 @@ export const useWebModules = memoized((options: WebModulesOptions = defaultOptio
                 await rollupWebModule(module);
             }
 
-            const pkg = await requireManifest(module);
+            let pkg = await requireManifest(module);
+            while (pkg && pkg.main && !posix.extname(pkg.main)) try {
+                pkg = await requireManifest(posix.join(module, pkg.main));
+            } catch (ignored) {
+            }
 
             const startTime = Date.now();
 
